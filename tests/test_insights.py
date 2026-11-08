@@ -3,9 +3,16 @@
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
+import pytest
+
 from custom_components.china_broadnet.insights import UsageInsights, daily_rate
 
 NOW = datetime(2026, 11, 29, tzinfo=UTC)
+
+
+@pytest.fixture(autouse=True)
+def enable_custom_integrations_fixture():
+    """These tests use the helpers directly, so Recorder can initialize HA first."""
 
 
 def test_estimate_requires_comparable_recorded_history():
@@ -76,3 +83,26 @@ async def test_live_changes_and_archive_survive_reload(hass):
         == (NOW + timedelta(minutes=52)).isoformat()
     )
     await insights.store.async_remove()
+
+
+async def test_estimate_reads_real_recorder_history(recorder_mock, hass, freezer):
+    """Use the same database query and state attributes as the estimate sensor."""
+    from custom_components.china_broadnet.insights import _recorded_rate
+
+    entity = "sensor.broadnet_history"
+    attributes = {"usage_scope": "one", "unit_of_measurement": "GB"}
+    freezer.move_to(NOW - timedelta(days=6))
+    hass.states.async_set(entity, "2", attributes)
+    await hass.async_block_till_done()
+    await recorder_mock.async_block_till_done()
+    freezer.move_to(NOW - timedelta(days=1))
+    hass.states.async_set(entity, "12", attributes)
+    await hass.async_block_till_done()
+    await recorder_mock.async_block_till_done()
+    freezer.move_to(NOW)
+    assert (
+        await recorder_mock.async_add_executor_job(
+            _recorded_rate, hass, entity, NOW, 14, "one"
+        )
+        == 2
+    )
