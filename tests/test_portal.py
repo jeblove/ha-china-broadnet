@@ -51,10 +51,11 @@ def test_skip_ambiguous_or_invalid_resource(rows):
 BALANCE_URL = f"{ORIGIN}/contact-web/api/busi/qryBalanceFee"
 
 
-def test_import_browser_curl():
+@pytest.mark.parametrize("url_option", ["", "--url ", "--url="])
+def test_import_browser_curl(url_option):
     command = " \\\r\n".join(
         (
-            f"curl '{BALANCE_URL}'",
+            f"curl {url_option}'{BALANCE_URL}'",
             "-H 'accept: application/json'",
             "-b 'example=authorized; other=one'",
             "-H 'User-Agent: Example Browser/1.0'",
@@ -72,6 +73,8 @@ def test_import_browser_curl():
     "command",
     [
         "curl 'https://example.test' -b 'a=b' -A 'Agent'",
+        "curl --url 'https://example.test' -b 'a=b' -A 'Agent'",
+        f"curl --url '{BALANCE_URL}' --url '{BALANCE_URL}' -b 'a=b' -A 'Agent'",
         f"curl '{BALANCE_URL}' -A 'Agent'",
         f"curl '{BALANCE_URL}' -b 'a=b' -b 'a=c' -A 'Agent'",
         f"curl '{BALANCE_URL}' -b 'a=b' -A 'Agent' ; echo unexpected",

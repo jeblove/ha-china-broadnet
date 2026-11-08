@@ -1,7 +1,9 @@
 """Exercise setup, reconfiguration, webhook and entity lifecycle in Home Assistant."""
 
 import asyncio
+from base64 import b64encode
 from datetime import UTC, datetime, timedelta
+from http.cookies import SimpleCookie
 
 from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
@@ -244,15 +246,18 @@ async def test_portal_setup_refresh_and_reauth(hass, aioclient_mock, freezer):
     assert state(hass, entry, "balance") == "12.01"
 
     aioclient_mock.clear_requests()
-    aioclient_mock.post(
+    response = aioclient_mock.request(
+        "POST",
         url,
         json={**success, "data": {"intfResultBean": {"balance": "0"}}},
         headers={"content-type": "application/json"},
     )
-    freezer.tick(timedelta(minutes=61))
+    response.cookies.update(SimpleCookie("SERVERID=renewed; Path=/"))
+    freezer.tick(timedelta(minutes=8, seconds=1))
     async_fire_time_changed(hass)
     await hass.async_block_till_done()
     assert state(hass, entry, "balance") == "0.0"
+    assert entry.data["cookie"] == "example=authorized; SERVERID=renewed"
     last_success = state(hass, entry, "last_updated")
 
     aioclient_mock.clear_requests()
@@ -261,8 +266,23 @@ async def test_portal_setup_refresh_and_reauth(hass, aioclient_mock, freezer):
     )
     await entry.runtime_data.async_refresh()
     await hass.async_block_till_done()
+    assert aioclient_mock.mock_calls[-1][3]["Cookie"] == entry.data["cookie"]
     assert state(hass, entry, "balance") == STATE_UNAVAILABLE
     assert state(hass, entry, "last_updated") == last_success
+    assert not hass.config_entries.flow.async_progress_by_handler(DOMAIN)
+    freezer.tick(timedelta(minutes=8, seconds=1))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    assert aioclient_mock.call_count == 1
+
+    aioclient_mock.clear_requests()
+    aioclient_mock.post(
+        url, json={"status": "701"}, headers={"content-type": "application/json"}
+    )
+    freezer.tick(timedelta(minutes=52))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    assert aioclient_mock.call_count == 1
     (flow,) = hass.config_entries.flow.async_progress_by_handler(DOMAIN)
     assert flow["step_id"] == "reauth_confirm"
 
@@ -276,3 +296,201 @@ async def test_portal_setup_refresh_and_reauth(hass, aioclient_mock, freezer):
     assert entry.data["user_agent"] == "Example browser"
     assert "curl" not in entry.data
     assert state(hass, entry, "balance") == "12.01"
+
+
+async def test_h5_sms_login_and_reauthentication(hass, aioclient_mock):
+    """Only user submission sends an SMS and HA reuses the verified session."""
+    from custom_components.china_broadnet.portal import H5_ORIGIN
+
+    api = f"{H5_ORIGIN}/contact-web/api"
+    headers = {"content-type": "application/json"}
+    sms_url = f"{api}/login/getVerifyCode"
+    login_url = f"{api}/login/gwLogin"
+    balance_url = f"{api}/busi/qryBillInfo"
+    success = {"status": "000000"}
+    data = {"name": "Mobile", "account": "19200000000", "consent": True}
+
+    form = await start_flow(hass, "h5_start")
+    invalid = await submit(hass, form, {**data, "account": "192"})
+    assert invalid["errors"] == {"account": "invalid_phone"}
+    refused = await submit(hass, form, {**data, "consent": False})
+    assert refused["errors"] == {"consent": "login_consent"}
+    assert aioclient_mock.call_count == 0
+
+    aioclient_mock.post(sms_url, json=success, headers=headers)
+    form = await submit(hass, form, data)
+    assert form["step_id"] == "h5_code"
+    assert aioclient_mock.call_count == 1
+    early = await submit(hass, form, {"resend": True})
+    assert early["errors"] == {"base": "sms_cooldown"}
+    assert aioclient_mock.call_count == 1
+
+    aioclient_mock.clear_requests()
+    aioclient_mock.post(login_url, json={"status": "DENIED"}, headers=headers)
+    invalid = await submit(hass, form, {"code": "123456"})
+    assert invalid["errors"] == {"code": "invalid_sms_code"}
+    assert aioclient_mock.call_count == 1
+
+    aioclient_mock.clear_requests()
+    aioclient_mock.post(
+        login_url,
+        json={**success, "data": {"sessionId": "h5-session"}},
+        headers=headers,
+    )
+    aioclient_mock.post(
+        balance_url, json={**success, "data": {"balance": "27.42"}}, headers=headers
+    )
+    result = await submit(hass, form, {"code": "654321"})
+    assert result["type"] is FlowResultType.CREATE_ENTRY, result.get("errors")
+    entry = result["result"]
+    assert entry.data["session"] == "h5-session"
+    assert "code" not in entry.data
+    assert "consent" not in entry.data
+    assert "cookie" not in entry.data
+    assert state(hass, entry, "balance") == "27.42"
+    assert aioclient_mock.mock_calls[-1][3]["Session"] == "h5-session"
+
+    duplicate_form = await start_flow(hass, "h5_start")
+    duplicate = await submit(hass, duplicate_form, {**data, "name": "Another alias"})
+    assert duplicate["reason"] == "already_configured"
+
+    aioclient_mock.clear_requests()
+    aioclient_mock.post(balance_url, json={"status": "701"}, headers=headers)
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    (flow,) = hass.config_entries.flow.async_progress_by_handler(DOMAIN)
+    assert flow["step_id"] == "h5_start"
+    assert aioclient_mock.call_count == 1
+
+    aioclient_mock.clear_requests()
+    aioclient_mock.post(sms_url, json=success, headers=headers)
+    form = await submit(hass, flow, {"consent": True})
+    assert form["step_id"] == "h5_code"
+
+    aioclient_mock.post(
+        login_url,
+        json={**success, "data": {"sessionId": "new-h5-session"}},
+        headers=headers,
+    )
+    aioclient_mock.post(
+        balance_url, json={**success, "data": {"balance": "0"}}, headers=headers
+    )
+    result = await submit(hass, form, {"code": "123456"})
+    assert result["reason"] == "reauth_successful"
+    assert entry.data["session"] == "new-h5-session"
+    assert state(hass, entry, "balance") == "0.0"
+
+
+async def test_desktop_captcha_shows_image_then_requests_sms(
+    hass, aioclient_mock, monkeypatch, freezer
+):
+    """Keep the image local and send no SMS before the user supplies its text."""
+    from yarl import URL
+
+    from custom_components.china_broadnet.captcha import CAPTCHA_URL, ORIGIN
+    from homeassistant.components import webhook
+    from homeassistant.helpers import aiohttp_client
+    from homeassistant.util.aiohttp import MockRequest
+
+    create_session = aiohttp_client._async_create_clientsession
+
+    def create_with_cookie_jar(*args, **kwargs):
+        session = create_session(*args, **kwargs)
+        if (jar := kwargs.get("cookie_jar")) is not None:
+            session._cookie_jar = jar
+        return session
+
+    monkeypatch.setattr(
+        aiohttp_client, "_async_create_clientsession", create_with_cookie_jar
+    )
+    image = b"\xff\xd8\xffsynthetic-captcha"
+    aioclient_mock.get(
+        CAPTCHA_URL, content=image, headers={"Content-Type": "image/jpeg"}
+    )
+    form = await start_flow(hass, "desktop_start")
+    assert aioclient_mock.call_count == 1
+    assert form["step_id"] == "desktop_start"
+    flow = hass.config_entries.flow._progress[form["flow_id"]]
+    # The HTTP mock bypasses the actual response's Set-Cookie processing.
+    flow._desktop_jar.update_cookies(
+        SimpleCookie("JSESSIONID=example; Path=/contact-web"), URL(CAPTCHA_URL)
+    )
+    path = form["description_placeholders"]["image"]
+    request = MockRequest(b"", mock_source="test", remote="127.0.0.1")
+    response = await webhook.async_handle_webhook(hass, path.rsplit("/", 1)[1], request)
+    assert response.content_type == "image/svg+xml"
+    assert response.headers["Cache-Control"] == "no-store"
+    assert f"data:image/jpeg;base64,{b64encode(image).decode()}" in response.text
+    assert ">02:00<" in response.text
+    assert 'begin="120s"' in response.text
+    freezer.tick(timedelta(seconds=15))
+    response = await webhook.async_handle_webhook(hass, path.rsplit("/", 1)[1], request)
+    assert ">02:00<" not in response.text
+    assert ">01:45<" in response.text
+
+    data = {"name": "Desktop", "account": "19200000000", "consent": True}
+    invalid = await submit(hass, form, {**data, "image_code": "!"})
+    assert invalid["errors"] == {"image_code": "invalid_image_code"}
+    assert aioclient_mock.call_count == 1
+
+    freezer.tick(timedelta(seconds=106))
+    form = await submit(hass, form, {**data, "image_code": "old7"})
+    assert form["step_id"] == "desktop_start"
+    new_path = form["description_placeholders"]["image"]
+    assert new_path != path
+    assert aioclient_mock.call_count == 2
+    flow._desktop_jar.update_cookies(
+        SimpleCookie("JSESSIONID=example; Path=/contact-web"), URL(CAPTCHA_URL)
+    )
+
+    api = f"{ORIGIN}/contact-web/api"
+    headers = {"content-type": "application/json"}
+    aioclient_mock.post(
+        f"{api}/login/getVerifyCode",
+        json={"status": "000000", "data": {}},
+        headers=headers,
+    )
+    form = await submit(hass, form, {**data, "image_code": "aBc7"})
+    assert form["step_id"] == "h5_code"
+    assert aioclient_mock.call_count == 3
+    expired = await webhook.async_handle_webhook(
+        hass, new_path.rsplit("/", 1)[1], request
+    )
+    assert not expired.body
+
+    aioclient_mock.post(
+        f"{api}/login/gwLogin",
+        json={"status": "000000", "data": {"sessionId": "desktop-session"}},
+        headers=headers,
+    )
+    aioclient_mock.post(
+        f"{api}/busi/qryBalanceFee",
+        json={
+            "status": "000000",
+            "ok": True,
+            "data": {"intfResultBean": {"balance": "1234"}},
+        },
+        headers=headers,
+    )
+    result = await submit(hass, form, {"code": "123456"})
+    assert result["type"] is FlowResultType.CREATE_ENTRY, result.get("errors")
+    entry = result["result"]
+    assert state(hass, entry, "balance") == "12.34"
+    assert entry.data["cookie"] == "JSESSIONID=example"
+    assert "image_code" not in entry.data
+    assert "code" not in entry.data
+
+
+async def test_desktop_browser_verification_does_not_send_sms(hass, aioclient_mock):
+    """A verification HTML page must not be exposed as a CAPTCHA."""
+    from custom_components.china_broadnet.captcha import CAPTCHA_URL
+
+    aioclient_mock.get(
+        CAPTCHA_URL,
+        text="<html>Challenge</html>",
+        headers={"Content-Type": "text/html"},
+    )
+    form = await start_flow(hass, "desktop_start")
+    assert form["step_id"] == "desktop_retry"
+    assert form["errors"] == {"base": "captcha_challenge"}
+    assert aioclient_mock.call_count == 1

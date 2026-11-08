@@ -14,7 +14,7 @@ from homeassistant.helpers.event import async_track_point_in_utc_time
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import DOMAIN
-from .portal import PortalAuthError, PortalClient, PortalError
+from .portal import PortalAuthError, PortalChallengeError, PortalClient, PortalError
 from .usage import current_values, report_window
 
 type BroadnetEntry = ConfigEntry[UsageCoordinator]
@@ -30,10 +30,11 @@ class UsageCoordinator(DataUpdateCoordinator[dict]):
             logging.getLogger(__name__),
             config_entry=entry,
             name=DOMAIN,
-            update_interval=timedelta(hours=1) if portal else None,
+            update_interval=timedelta(minutes=8) if portal else None,
             always_update=False,
         )
         self.entry = entry
+        self._portal_data = entry.data if portal else None
         self._portal = (
             PortalClient(
                 async_create_clientsession(hass, cookie_jar=DummyCookieJar()),
@@ -48,11 +49,24 @@ class UsageCoordinator(DataUpdateCoordinator[dict]):
     async def _async_update_data(self) -> dict:
         if self._portal is not None:
             try:
-                return await self._portal.async_read()
+                data = await self._portal.async_read()
             except PortalAuthError as err:
                 raise ConfigEntryAuthFailed("Refresh the website session") from err
+            except PortalChallengeError as err:
+                raise UpdateFailed(str(err), retry_after=3600) from err
             except PortalError as err:
                 raise UpdateFailed(str(err)) from err
+            cookie = self._portal.cookie
+            if (
+                cookie is not None
+                and self.entry.data is self._portal_data
+                and self.entry.data["cookie"] != cookie
+            ):
+                self.hass.config_entries.async_update_entry(
+                    self.entry, data={**self.entry.data, "cookie": cookie}
+                )
+                self._portal_data = self.entry.data
+            return data
         return self._async_snapshot(datetime.now(UTC))
 
     @callback

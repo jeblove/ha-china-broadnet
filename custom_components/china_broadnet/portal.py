@@ -14,9 +14,11 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives.serialization import load_der_public_key
 
-from .usage import SHANGHAI, traffic_gb
+from .usage import SHANGHAI, amount, traffic_gb
 
 ORIGIN = "https://www.10099.com.cn"
+H5_ORIGIN = "https://app.10099.com.cn"
+H5_CHANNEL = "cd_20220516_503441"
 ACCOUNT_PAGE = f"{ORIGIN}/personal-center-number-order.html"
 TIMEOUT = ClientTimeout(total=12)
 MAX_RESPONSE = 256 * 1024
@@ -47,8 +49,12 @@ class PortalAuthError(PortalError):
     """The website session or its cookies need to be refreshed."""
 
 
-class PortalChallengeError(PortalAuthError):
+class PortalChallengeError(PortalError):
     """The request reached the website's browser verification page."""
+
+
+class PortalCodeError(PortalError):
+    """The carrier rejected a login SMS request or code."""
 
 
 class PortalCurlError(ValueError):
@@ -72,6 +78,10 @@ def parse_portal_curl(command: str) -> dict[str, str]:
     headers = {}
     arguments = iter(parts)
     for part in arguments:
+        if part == "--url" or part.startswith("--url="):
+            part = next(arguments, "") if part == "--url" else part[6:]
+            if part != url or found_url:
+                raise PortalCurlError(error)
         if part == url and not found_url:
             found_url = True
             continue
@@ -134,6 +144,10 @@ def _request(
         "v": CLIENT_VERSION,
         "timestamp": int(now.timestamp() * 1000),
     }
+    return _encode_request(data)
+
+
+def _encode_request(data: dict) -> tuple[str, dict[str, str]]:
     checksum = "&".join(f"{key}={data[key]}" for key in sorted(data))
     access = hashlib.md5(checksum.encode(), usedforsecurity=False).hexdigest()
     encoded = quote(
@@ -194,25 +208,129 @@ def _traffic(rows: list, package: str, now: datetime) -> dict[str, float]:
     }
 
 
+def valid_phone(value: object) -> bool:
+    """Validate the phone format used by the official hall."""
+    return isinstance(value, str) and re.fullmatch(r"1[0-9]{10}", value) is not None
+
+
+def _valid_session_id(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and re.fullmatch(r"[A-Za-z0-9_.-]{1,256}", value) is not None
+    )
+
+
+async def _post_envelope(http, url, headers, payload):
+    try:
+        async with http.post(
+            url, headers=headers, json=payload, timeout=TIMEOUT, allow_redirects=False
+        ) as response:
+            if response.content_type == "text/html":
+                raise PortalChallengeError("Website returned a verification page")
+            if response.status in (401, 403):
+                raise PortalAuthError("Website session rejected")
+            if response.status != 200 or response.content_type != "application/json":
+                raise PortalError("Unexpected website response")
+            body = bytearray()
+            async for chunk in response.content.iter_chunked(8192):
+                body.extend(chunk)
+                if len(body) > MAX_RESPONSE:
+                    raise PortalError("Website response exceeds limit")
+            route_cookie = response.cookies.get("SERVERID")
+        envelope = json.loads(body)
+    except ClientError, TimeoutError, ValueError, RecursionError:
+        raise PortalError("Website request failed") from None
+    if not isinstance(envelope, dict):
+        raise PortalError("Invalid website response")
+    return envelope, route_cookie
+
+
+async def _h5_request(http, route, data, *, session=None):
+    access, payload = _encode_request(
+        {
+            **data,
+            "channelId": H5_CHANNEL,
+            "timestamp": int(datetime.now(UTC).timestamp() * 1000),
+            "v": "a0049",
+        }
+    )
+    headers = {
+        "Access": access,
+        "Origin": H5_ORIGIN,
+        "Referer": f"{H5_ORIGIN}/h5-app/",
+        "Accept": "application/json",
+    }
+    if session:
+        headers["Session"] = session
+    envelope, _ = await _post_envelope(
+        http, f"{H5_ORIGIN}/contact-web/api/{route}", headers, payload
+    )
+    return envelope
+
+
+async def async_h5_send_sms(http: ClientSession, phone: str) -> None:
+    """Send one login SMS on explicit request."""
+    result = await _h5_request(
+        http, "login/getVerifyCode", {"recieveNum": phone, "type": "1"}
+    )
+    if result.get("status") != "000000":
+        raise PortalCodeError("Website rejected the login SMS request")
+
+
+async def async_h5_login(http: ClientSession, phone: str, code: str) -> str:
+    """Exchange a user-entered login code for an account session."""
+    result = await _h5_request(
+        http,
+        "login/gwLogin",
+        {
+            "loginPhone": phone,
+            "loginPassWord": code,
+            "loginType": "1",
+            "channelType": "1",
+        },
+    )
+    if result.get("status") != "000000":
+        raise PortalCodeError("Website rejected the login code")
+    data = result.get("data")
+    if not isinstance(data, dict) or not _valid_session_id(data.get("sessionId")):
+        raise PortalError("Invalid website session response")
+    return data["sessionId"]
+
+
 class PortalClient:
     """Query the website read-only routes with an imported account session."""
 
     def __init__(self, http: ClientSession, settings: dict) -> None:
         self._http = http
-        raw = settings["session"]
-        if not isinstance(raw, str) or len(raw) > 10_000:
-            raise ValueError("Invalid website session")
-        storage = json.loads(raw)
-        if not isinstance(storage, dict) or set(storage) != {
-            "broadnetUserPhoneInfo",
-            "broadnetUserSessionId",
-        }:
-            raise ValueError("Invalid website session")
-        self.account = _storage_value(storage["broadnetUserPhoneInfo"], "accessNumber")
-        self._session_id = _storage_value(storage["broadnetUserSessionId"], "id")
-        if not re.fullmatch(r"1[0-9]{10}", self.account) or not re.fullmatch(
-            r"[A-Za-z0-9_.-]{1,256}", self._session_id
-        ):
+        self._package = settings.get("package", "").strip()
+        if len(self._package) > 128:
+            raise ValueError("Invalid package name")
+        self._h5 = settings.get("portal_mode") == "h5"
+        if self._h5:
+            self.account = settings["account"]
+            self._session_id = settings["session"]
+            if not valid_phone(self.account) or not _valid_session_id(self._session_id):
+                raise ValueError("Invalid website session")
+            self._headers = {}
+            return
+        if settings.get("portal_mode") == "desktop":
+            self.account = settings["account"]
+            self._session_id = settings["session"]
+        else:
+            raw = settings["session"]
+            if not isinstance(raw, str) or len(raw) > 10_000:
+                raise ValueError("Invalid website session")
+            storage = json.loads(raw)
+            if not isinstance(storage, dict) or set(storage) != {
+                "broadnetUserPhoneInfo",
+                "broadnetUserSessionId",
+            }:
+                raise ValueError("Invalid website session")
+            self.account = _storage_value(
+                storage["broadnetUserPhoneInfo"], "accessNumber"
+            )
+            self._session_id = _storage_value(storage["broadnetUserSessionId"], "id")
+        if not valid_phone(self.account) or not _valid_session_id(self._session_id):
             raise ValueError("Invalid website session")
         cookie = settings["cookie"].strip()
         agent = settings["user_agent"].strip()
@@ -227,40 +345,38 @@ class PortalClient:
             "Referer": ACCOUNT_PAGE,
             "X-Requested-With": "XMLHttpRequest",
         }
-        self._package = settings.get("package", "").strip()
-        if len(self._package) > 128:
-            raise ValueError("Invalid package name")
+
+    @property
+    def cookie(self) -> str | None:
+        """Return the current website cookie header."""
+        return self._headers.get("Cookie")
 
     async def _query(self, route: str) -> dict:
+        if self._h5:
+            route = "qryBillInfo" if route == "qryBalanceFee" else route
+            envelope = await _h5_request(
+                self._http,
+                f"busi/{route}",
+                {"accessNum": self.account, "sessionId": self._session_id},
+                session=self._session_id,
+            )
+            if envelope.get("status") in ("701", "OBC967"):
+                raise PortalAuthError("Website session rejected")
+            data = envelope.get("data")
+            if envelope.get("status") != "000000" or not isinstance(data, dict):
+                raise PortalError("Invalid website response")
+            if route == "qryBillInfo":
+                return data
+            if not isinstance(bean := data.get("intfResultBean"), dict):
+                raise PortalError("Invalid traffic response")
+            return bean
         access, payload = _request(self.account, self._session_id, datetime.now(UTC))
-        try:
-            async with self._http.post(
-                f"{ORIGIN}/contact-web/api/busi/{route}",
-                headers={**self._headers, "Access": access},
-                json=payload,
-                timeout=TIMEOUT,
-                allow_redirects=False,
-            ) as response:
-                if response.content_type == "text/html":
-                    raise PortalChallengeError("Website returned a verification page")
-                if response.status in (401, 403):
-                    raise PortalAuthError("Website session rejected")
-                if (
-                    response.status != 200
-                    or response.content_type != "application/json"
-                ):
-                    raise PortalError("Unexpected website response")
-                body = bytearray()
-                async for chunk in response.content.iter_chunked(8192):
-                    body.extend(chunk)
-                    if len(body) > MAX_RESPONSE:
-                        raise PortalError("Website response exceeds limit")
-            envelope = json.loads(body)
-        except ClientError, TimeoutError, ValueError, RecursionError:
-            raise PortalError("Website request failed") from None
-
-        if not isinstance(envelope, dict):
-            raise PortalError("Invalid website response")
+        envelope, route_cookie = await _post_envelope(
+            self._http,
+            f"{ORIGIN}/contact-web/api/busi/{route}",
+            {**self._headers, "Access": access},
+            payload,
+        )
         if envelope.get("status") in ("701", "OBC967"):
             raise PortalAuthError("Website session rejected")
         data = envelope.get("data")
@@ -271,12 +387,33 @@ class PortalClient:
             or not isinstance(bean := data.get("intfResultBean"), dict)
         ):
             raise PortalError("Invalid website response")
+        # The official endpoint rotates this host-only routing cookie on success.
+        if (
+            route_cookie
+            and route_cookie["path"] == "/"
+            and not any(route_cookie[key] for key in ("domain", "expires", "max-age"))
+            and re.fullmatch(r"[A-Za-z0-9_.|~-]{1,256}", route_cookie.value)
+        ):
+            cookies = [
+                part.strip()
+                for part in self._headers["Cookie"].split(";")
+                if part.strip() and part.partition("=")[0].strip() != "SERVERID"
+            ]
+            cookies.append(f"SERVERID={route_cookie.value}")
+            header = "; ".join(cookies)
+            if len(header) <= 8192:
+                self._headers["Cookie"] = header
         return bean
 
     async def async_balance(self) -> float:
         """Validate the session and read the website's displayed account balance."""
         balance = await self._query("qryBalanceFee")
         try:
+            if self._h5:
+                value = balance.get("balance")
+                if not isinstance(value, str):
+                    raise ValueError("Invalid website balance")
+                return float(amount(value, signed=True))
             overdue = balance.get("spayFee")
             if overdue and (arrears := _integer(overdue)):
                 return -arrears / 100

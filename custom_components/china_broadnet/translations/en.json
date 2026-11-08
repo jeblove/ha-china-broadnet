@@ -7,7 +7,9 @@
         "menu_options": {
           "manual": "Enter official hall readings",
           "sms": "Receive forwarded SMS (experimental)",
-          "portal": "Official website session (experimental)"
+          "portal": "Official website session (experimental)",
+          "h5_start": "Phone and SMS login",
+          "desktop_start": "Image CAPTCHA login (experimental)"
         }
       },
       "manual": {
@@ -80,6 +82,46 @@
           "package": "Exact monthly general package name (optional)",
           "curl": "Paste the balance request as cURL (bash)"
         }
+      },
+      "h5_start": {
+        "title": "Sign in to China Broadnet",
+        "description": "Use China Broadnet’s official mobile website login. Submitting this form requests one login SMS. Review the carrier’s user agreement and privacy policy on the [official mobile website]({website}).",
+        "data": {
+          "name": "Account alias",
+          "account": "Mobile number",
+          "package": "Exact monthly general package name (optional)",
+          "consent": "I agree to the carrier’s terms and want to request an SMS code"
+        }
+      },
+      "h5_code": {
+        "title": "Verify the login SMS",
+        "description": "Enter the code from China Broadnet. If the code has expired, request another after at least 60 seconds. If login succeeded but the balance check failed, submit again to retry the query.",
+        "data": {
+          "code": "SMS verification code",
+          "resend": "Request a new code"
+        }
+      },
+      "h5_update": {
+        "title": "Update the general data package",
+        "description": "Leave this field blank to show the balance only. This change does not send a login SMS.",
+        "data": {
+          "package": "Exact monthly general package name (optional)"
+        }
+      },
+      "desktop_start": {
+        "title": "Image CAPTCHA login (experimental)",
+        "description": "Open Home Assistant from your local network and enter the characters below and your phone number. Submitting requests one login SMS. Review the user agreement and privacy policy at the [official website]({website}). When the timer reaches zero, submit to load a new image.\n\n![China Broadnet CAPTCHA]({image})",
+        "data": {
+          "name": "Account alias",
+          "account": "Mobile number",
+          "package": "Exact monthly general package name (optional)",
+          "consent": "I agree to the carrier’s terms and want to request an SMS code",
+          "image_code": "Image CAPTCHA"
+        }
+      },
+      "desktop_retry": {
+        "title": "Image CAPTCHA unavailable",
+        "description": "Submit to retry loading the image, or close this flow and choose phone and SMS login. This step does not send an SMS."
       }
     },
     "error": {
@@ -92,7 +134,16 @@
       "portal_auth_failed": "The carrier rejected the session. Refresh the website credentials.",
       "cannot_connect": "The carrier query failed. Try again later.",
       "invalid_portal_curl": "Use Copy as cURL (bash) on the qryBalanceFee request in the Network panel.",
-      "portal_challenge": "The carrier returned a browser verification page. Copy a fresh successful balance request from the signed-in tab."
+      "portal_challenge": "China Broadnet returned a browser verification page to Home Assistant. Check whether Home Assistant and your browser use the same internet connection.",
+      "invalid_phone": "Enter an 11-digit mobile number.",
+      "login_consent": "Confirm the carrier terms and SMS request.",
+      "invalid_package": "Enter a package name of at most 128 characters.",
+      "sms_cooldown": "Wait at least 60 seconds before requesting another SMS.",
+      "sms_rejected": "China Broadnet rejected the SMS request. Try again later.",
+      "invalid_sms_code": "Enter a valid SMS code. Check whether it has expired.",
+      "captcha_challenge": "China Broadnet returned a browser verification page instead of the CAPTCHA image.",
+      "invalid_image_code": "Enter the characters shown in the image.",
+      "invalid_desktop_codes": "China Broadnet rejected the CAPTCHA or SMS code. Restart this backup login flow if the image code has expired."
     },
     "abort": {
       "already_configured": "This account alias is already configured.",
