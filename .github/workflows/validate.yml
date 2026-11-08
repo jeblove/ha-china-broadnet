@@ -2,6 +2,7 @@ name: Validate integration
 
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -30,6 +31,7 @@ jobs:
         with:
           python-version: "3.14"
       - name: Run Hassfest without Docker
+        shell: bash
         run: |
           core=$(mktemp -d)
           trap 'rm -rf "$core"' EXIT
@@ -42,8 +44,9 @@ jobs:
             -c "$core/homeassistant/package_constraints.txt" \
             $(grep -E '^(pipdeptree|tqdm)==' "$core/requirements_test.txt") \
             $(grep -E '^ruff==' "$core/requirements_test_pre_commit.txt")
+          source "$core/.venv/bin/activate"
           cd "$core"
-          .venv/bin/python -m script.hassfest --action validate \
+          python -m script.hassfest --action validate \
             --integration-path "$GITHUB_WORKSPACE/custom_components/china_broadnet"
   hacs:
     # The official validator rejects private repositories before checking files.
