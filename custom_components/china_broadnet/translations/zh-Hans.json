@@ -57,29 +57,26 @@
       },
       "portal": {
         "title": "连接网上营业厅会话",
-        "description": "请从已登录的本人账户标签页导入凭据。包名留空时只查余额。具体步骤见项目文档。",
+        "description": "请从已登录的本人账户标签页导入凭据。包名具体步骤见项目文档。",
         "data": {
           "name": "账户别名",
           "session": "导出的网页标签页会话",
-          "package": "本月套餐通用流量包完整名称（可选）",
           "curl": "粘贴余额请求的 cURL (bash)"
         }
       },
       "portal_update": {
         "title": "更新网上营业厅设置",
-        "description": "请从已登录的本人账户标签页导入凭据。包名留空时只查余额。具体步骤见项目文档。",
+        "description": "请从已登录的本人账户标签页导入凭据。包名具体步骤见项目文档。",
         "data": {
           "session": "导出的网页标签页会话",
-          "package": "本月套餐通用流量包完整名称（可选）",
           "curl": "粘贴余额请求的 cURL (bash)"
         }
       },
       "reauth_confirm": {
         "title": "更新已失效的网上营业厅会话",
-        "description": "请从已登录的本人账户标签页导入凭据。包名留空时只查余额。具体步骤见项目文档。",
+        "description": "请从已登录的本人账户标签页导入凭据。包名具体步骤见项目文档。",
         "data": {
           "session": "导出的网页标签页会话",
-          "package": "本月套餐通用流量包完整名称（可选）",
           "curl": "粘贴余额请求的 cURL (bash)"
         }
       },
@@ -89,23 +86,22 @@
         "data": {
           "name": "账号别名",
           "account": "手机号",
-          "package": "本月套餐通用流量包的准确名称（可选）",
           "consent": "我同意运营商协议，并申请发送短信验证码"
         }
       },
       "h5_code": {
         "title": "验证登录短信",
-        "description": "填写中国广电发来的验证码。验证码过期时，可间隔至少 60 秒重新发送。如果已登录但余额校验失败，可直接再次提交以重试查询。",
+        "description": "广电已接受短信发送请求。验证码有效期为 5 分钟，倒计时从发送成功开始。若未收到短信，间隔 60 秒后可请求重发。\n\n{timer}",
         "data": {
           "code": "短信验证码",
           "resend": "重新发送验证码"
         }
       },
       "h5_update": {
-        "title": "更新通用流量包",
-        "description": "留空时只显示余额。修改这项设置不会发送登录短信。",
+        "title": "选择本月通用流量包",
+        "description": "默认全选已确认的本月通用包。若暂无选项，请等待一次成功的流量刷新后再打开。",
         "data": {
-          "package": "本月套餐通用流量包的准确名称（可选）"
+          "packages": "计入本月通用流量的流量包"
         }
       },
       "desktop_start": {
@@ -114,7 +110,6 @@
         "data": {
           "name": "账号别名",
           "account": "手机号",
-          "package": "本月套餐通用流量包的准确名称（可选）",
           "consent": "我同意运营商协议，并申请发送短信验证码",
           "image_code": "图形验证码"
         }
@@ -122,6 +117,13 @@
       "desktop_retry": {
         "title": "图形验证码暂不可用",
         "description": "可以提交本页重试获取图片，或关闭后使用手机号和短信验证码登录。此步骤不会发送短信。"
+      },
+      "reconfigure": {
+        "title": "更新营业厅设置",
+        "menu_options": {
+          "h5_update": "选择本月通用流量包",
+          "portal_update": "更新网页登录凭据"
+        }
       }
     },
     "error": {
@@ -143,7 +145,8 @@
       "invalid_sms_code": "请输入有效的短信验证码，并确认验证码是否过期。",
       "captcha_challenge": "广电向 HA 返回了网页验证页，未提供图形验证码。",
       "invalid_image_code": "请输入图片中的字符。",
-      "invalid_desktop_codes": "广电拒绝了图形验证码或短信验证码。若图形验证码已失效，请重新打开备用登录流程。"
+      "invalid_desktop_codes": "广电拒绝了图形验证码或短信验证码。若图形验证码已失效，请重新打开备用登录流程。",
+      "sms_expired": "验证码已过期，请请求重发。"
     },
     "abort": {
       "already_configured": "此账户别名已配置。",
@@ -169,6 +172,21 @@
       },
       "last_updated": {
         "name": "最近成功更新时间"
+      },
+      "package_remaining": {
+        "name": "{package}余量"
+      },
+      "package_expiry": {
+        "name": "{package}到期时间"
+      },
+      "monthly_spend": {
+        "name": "当月消费"
+      },
+      "plan_name": {
+        "name": "套餐名称"
+      },
+      "voice_remaining": {
+        "name": "本月语音余量"
       }
     }
   }

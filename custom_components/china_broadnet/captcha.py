@@ -137,12 +137,22 @@ def _captcha_svg(mime: str, image: bytes, remaining: int) -> str:
     )
     positions = ";".join(f"0 {-index * 24}" for index in range(remaining + 1))
     times = ";".join(f"{index / remaining:.6f}" for index in range(remaining + 1))
-    encoded = b64encode(image).decode("ascii")
+    picture = ""
+    if image:
+        encoded = b64encode(image).decode("ascii")
+        picture = (
+            f'<image width="176" height="48" href="data:{mime};base64,{encoded}">'
+            f'<set attributeName="visibility" to="hidden" begin="{remaining}s" '
+            'fill="freeze"/></image>'
+        )
+    viewport = (
+        'width="176" height="74"'
+        if image
+        else 'width="176" height="25" viewBox="0 49 176 25"'
+    )
     return (
-        '<svg xmlns="http://www.w3.org/2000/svg" width="176" height="74">'
-        f'<image width="176" height="48" href="data:{mime};base64,{encoded}">'
-        f'<set attributeName="visibility" to="hidden" begin="{remaining}s" '
-        'fill="freeze"/></image>'
+        f'<svg xmlns="http://www.w3.org/2000/svg" {viewport}>'
+        f"{picture}"
         '<clipPath id="timer"><rect y="49" width="176" height="25"/></clipPath>'
         '<g clip-path="url(#timer)"><g text-anchor="middle" '
         f'font-family="monospace" font-size="16" fill="#666">{labels}'
@@ -153,12 +163,12 @@ def _captcha_svg(mime: str, image: bytes, remaining: int) -> str:
 
 
 @callback
-def async_publish_captcha(
-    hass: HomeAssistant, mime: str, image: bytes
+def async_publish_countdown(
+    hass: HomeAssistant, mime: str, image: bytes, *, lifetime: int = CAPTCHA_LIFETIME
 ) -> tuple[str, float, Callable[[], None]]:
-    """Serve a CAPTCHA only through a temporary unguessable local path."""
+    """Serve a temporary countdown, restricting CAPTCHA images to the LAN."""
     webhook_id = webhook.async_generate_id()
-    deadline = monotonic() + CAPTCHA_LIFETIME
+    deadline = monotonic() + lifetime
 
     async def handle(_hass, _webhook_id, _request):
         remaining = ceil(deadline - monotonic())
@@ -173,10 +183,10 @@ def async_publish_captcha(
     webhook.async_register(
         hass,
         DOMAIN,
-        "China Broadnet CAPTCHA",
+        "China Broadnet countdown",
         webhook_id,
         handle,
-        local_only=True,
+        local_only=bool(image),
         allowed_methods=("GET",),
     )
 
@@ -184,7 +194,7 @@ def async_publish_captcha(
     def expire(_now):
         webhook.async_unregister(hass, webhook_id)
 
-    cancel_expiration = async_call_later(hass, CAPTCHA_LIFETIME, expire)
+    cancel_expiration = async_call_later(hass, lifetime, expire)
 
     @callback
     def remove():

@@ -5,7 +5,7 @@ import hashlib
 import json
 import re
 import shlex
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from urllib.parse import quote
 
 from aiohttp import ClientError, ClientSession, ClientTimeout
@@ -14,7 +14,7 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives.serialization import load_der_public_key
 
-from .usage import SHANGHAI, amount, traffic_gb
+from .usage import SHANGHAI, amount
 
 ORIGIN = "https://www.10099.com.cn"
 H5_ORIGIN = "https://app.10099.com.cn"
@@ -170,42 +170,149 @@ def _integer(value: object, *, signed: bool = False) -> int:
     return int(value)
 
 
-def _traffic(rows: list, package: str, now: datetime) -> dict[str, float]:
-    if not package or "通用" not in package or re.search(r"定向|结转|赠送", package):
-        return {}
-    matches = [
-        row
-        for row in rows
-        if isinstance(row, dict)
-        and row.get("busiType") == "5"
-        and row.get("discntName") == package
-    ]
-    if len(matches) != 1:
-        return {}
-    row = matches[0]
-    local = now.astimezone(SHANGHAI)
+def _month_bounds(local: datetime) -> tuple[datetime, datetime]:
     month = local.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    next_month = month.replace(
+    return month, month.replace(
         year=month.year + (month.month == 12), month=month.month % 12 + 1
     )
-    try:
-        start = datetime.strptime(row["startTime"], "%Y-%m-%d %H:%M:%S").replace(
-            tzinfo=SHANGHAI
+
+
+def _resource_dates(row: dict) -> tuple[datetime, datetime]:
+    return tuple(
+        datetime.strptime(row[key], "%Y-%m-%d %H:%M:%S").replace(tzinfo=SHANGHAI)
+        for key in ("startTime", "endTime")
+    )
+
+
+def _packages(rows: list, now: datetime) -> dict:
+    local = now.astimezone(SHANGHAI)
+    month, next_month = _month_bounds(local)
+    packages = {}
+    duplicates = set()
+    for row in rows:
+        if not isinstance(row, dict) or row.get("busiType") != "5":
+            continue
+        name = row.get("discntName")
+        item = row.get("itemName") or ""
+        if (
+            not isinstance(name, str)
+            or not 1 <= len(name) <= 255
+            or not isinstance(item, str)
+        ):
+            continue
+        label = f"{name} {item}"
+        category = next(
+            (
+                key
+                for marker, key in (
+                    ("结转", "rollover"),
+                    ("定向", "directed"),
+                    ("赠送", "bonus"),
+                    ("通用", "general"),
+                )
+                if marker in label
+            ),
+            None,
         )
-        end = datetime.strptime(row["endTime"], "%Y-%m-%d %H:%M:%S").replace(
-            tzinfo=SHANGHAI
+        if category is None:
+            continue
+        try:
+            start, end = _resource_dates(row)
+            remaining = _integer(row.get("balance"))
+            total = _integer(row.get("highFee")) if category == "general" else None
+        except KeyError, TypeError, ValueError:
+            continue
+        if not start <= local < end:
+            continue
+        if total is not None and (
+            remaining > total or not month <= start < end <= next_month
+        ):
+            continue
+        identity = (
+            name
+            if category == "general"
+            else json.dumps(
+                [
+                    category,
+                    name,
+                    row.get("discntCode"),
+                    row.get("itemId"),
+                    start.isoformat(),
+                    end.isoformat(),
+                ],
+                ensure_ascii=False,
+            )
         )
-        total = _integer(row.get("highFee"))
-        remaining = _integer(row.get("balance"))
-    except KeyError, TypeError, ValueError:
+        key = hashlib.sha256(identity.encode()).hexdigest()[:24]
+        if key in packages:
+            duplicates.add(key)
+        packages[key] = {
+            "name": name,
+            "category": category,
+            "start": start,
+            "end": end,
+            "remaining": remaining,
+            "total": total,
+        }
+    return {key: value for key, value in packages.items() if key not in duplicates}
+
+
+def _traffic(packages: dict, names: list[str] | None) -> dict[str, float]:
+    selected = [
+        package
+        for package in packages.values()
+        if package["category"] == "general"
+        and (names is None or package["name"] in names)
+    ]
+    if not selected:
         return {}
-    if not month <= start <= local < end <= next_month or remaining > total:
-        return {}
+    total = sum(package["total"] for package in selected)
+    remaining = sum(package["remaining"] for package in selected)
     return {
-        "data_total": traffic_gb(str(total), "KiB", 1024),
-        "data_used": traffic_gb(str(total - remaining), "KiB", 1024),
-        "data_remaining": traffic_gb(str(remaining), "KiB", 1024),
+        "data_total": total * 1024 / 1_000_000_000,
+        "data_used": (total - remaining) * 1024 / 1_000_000_000,
+        "data_remaining": remaining * 1024 / 1_000_000_000,
     }
+
+
+def _voice_remaining(rows: list, now: datetime) -> int | None:
+    local = now.astimezone(SHANGHAI)
+    month, next_month = _month_bounds(local)
+    values = []
+    for row in rows:
+        if not isinstance(row, dict) or (
+            row.get("busiType"),
+            row.get("itemTypeCode"),
+            row.get("itemName"),
+        ) != ("1", "2", "语音免费资源"):
+            continue
+        try:
+            start, end = _resource_dates(row)
+            remaining = _integer(row.get("balance"))
+            total = _integer(row.get("highFee"))
+        except KeyError, TypeError, ValueError:
+            continue
+        if month <= start <= local < end <= next_month and remaining <= total:
+            values.append(remaining)
+    return values[0] if len(values) == 1 else None
+
+
+def _monthly_spend(bill: dict, *, h5: bool) -> float | None:
+    try:
+        if not h5:
+            return _integer(bill.get("currealFee"), signed=True) / 100
+        rows = [
+            row.get("value")
+            for group in bill.get("contentList") or []
+            if isinstance(group, dict) and group.get("title") == "当月消费"
+            for row in group.get("list") or []
+            if isinstance(row, dict) and row.get("name") == "消费合计"
+        ]
+        if len(rows) == 1 and isinstance(rows[0], str):
+            return float(amount(rows[0], signed=True))
+    except TypeError, ValueError:
+        pass
+    return None
 
 
 def valid_phone(value: object) -> bool:
@@ -302,9 +409,10 @@ class PortalClient:
 
     def __init__(self, http: ClientSession, settings: dict) -> None:
         self._http = http
-        self._package = settings.get("package", "").strip()
-        if len(self._package) > 128:
-            raise ValueError("Invalid package name")
+        self._plan_name: str | None = None
+        self._plan_checked: datetime | None = None
+        legacy = settings.get("package", "").strip()
+        self._packages = settings.get("packages", [legacy] if legacy else None)
         self._h5 = settings.get("portal_mode") == "h5"
         if self._h5:
             self.account = settings["account"]
@@ -365,7 +473,7 @@ class PortalClient:
             data = envelope.get("data")
             if envelope.get("status") != "000000" or not isinstance(data, dict):
                 raise PortalError("Invalid website response")
-            if route == "qryBillInfo":
+            if route in ("qryBillInfo", "qryPhonePackInfo"):
                 return data
             if not isinstance(bean := data.get("intfResultBean"), dict):
                 raise PortalError("Invalid traffic response")
@@ -384,7 +492,6 @@ class PortalClient:
             envelope.get("status") != "000000"
             or envelope.get("ok") is not True
             or not isinstance(data, dict)
-            or not isinstance(bean := data.get("intfResultBean"), dict)
         ):
             raise PortalError("Invalid website response")
         # The official endpoint rotates this host-only routing cookie on success.
@@ -403,11 +510,17 @@ class PortalClient:
             header = "; ".join(cookies)
             if len(header) <= 8192:
                 self._headers["Cookie"] = header
+        if route == "qryPhonePackInfo":
+            return data
+        if not isinstance(bean := data.get("intfResultBean"), dict):
+            raise PortalError("Invalid website response")
         return bean
 
     async def async_balance(self) -> float:
         """Validate the session and read the website's displayed account balance."""
-        balance = await self._query("qryBalanceFee")
+        return self._balance(await self._query("qryBalanceFee"))
+
+    def _balance(self, balance: dict) -> float:
         try:
             if self._h5:
                 value = balance.get("balance")
@@ -422,12 +535,38 @@ class PortalClient:
             raise PortalError("Invalid balance response") from None
 
     async def async_read(self) -> dict:
-        """Return balance and one explicitly confirmed monthly general package."""
-        balance = await self.async_balance()
-        traffic = {}
-        if self._package:
+        """Return balance, selected general usage and individually classified packs."""
+        bill = await self._query("qryBalanceFee")
+        balance = self._balance(bill)
+        try:
             resources = await self._query("qryUserRes")
-            if not isinstance(rows := resources.get("userResList"), list):
-                raise PortalError("Invalid traffic response")
-            traffic = _traffic(rows, self._package, datetime.now(UTC))
-        return {"balance": balance, **traffic, "last_updated": datetime.now(UTC)}
+            rows = resources.get("userResList")
+        except PortalAuthError:
+            raise
+        except PortalError:
+            rows = None
+        now = datetime.now(UTC)
+        if self._plan_checked is None or now - self._plan_checked >= timedelta(hours=6):
+            self._plan_checked = now
+            try:
+                plan = (await self._query("qryPhonePackInfo")).get("packName")
+            except PortalAuthError:
+                raise
+            except PortalError:
+                self._plan_name = None
+            else:
+                self._plan_name = (
+                    plan.strip() if isinstance(plan, str) and len(plan) <= 255 else None
+                )
+        packages = _packages(rows, now) if isinstance(rows, list) else {}
+        return {
+            "balance": balance,
+            **_traffic(packages, self._packages),
+            "packages": packages,
+            "monthly_spend": _monthly_spend(bill, h5=self._h5),
+            "plan_name": self._plan_name or None,
+            "voice_remaining": _voice_remaining(rows, now)
+            if isinstance(rows, list)
+            else None,
+            "last_updated": datetime.now(UTC),
+        }

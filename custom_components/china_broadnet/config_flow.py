@@ -18,6 +18,7 @@ from homeassistant.helpers.selector import (
     SelectOptionDict,
     SelectSelector,
     SelectSelectorConfig,
+    SelectSelectorMode,
     TextSelector,
     TextSelectorConfig,
     TextSelectorType,
@@ -29,7 +30,7 @@ from .captcha import (
     async_desktop_login,
     async_desktop_send_sms,
     async_fetch_captcha,
-    async_publish_captcha,
+    async_publish_countdown,
 )
 from .const import DOMAIN, TRAFFIC_KEYS
 from .portal import (
@@ -50,6 +51,7 @@ from .usage import amount, group_for, make_report
 
 MANUAL_KEYS = ("balance", *TRAFFIC_KEYS)
 TEMPLATE_KEYS = ("balance_template", "traffic_template")
+SMS_VALIDITY = 300
 
 
 class ChinaBroadnetConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -63,6 +65,9 @@ class ChinaBroadnetConfigFlow(ConfigFlow, domain=DOMAIN):
         self._login_data: dict | None = None
         self._login_name = ""
         self._sms_at = float("-inf")
+        self._sms_timer_path = ""
+        self._sms_until = 0.0
+        self._remove_sms_timer = None
         self._desktop_jar: CookieJar | None = None
         self._image_path = ""
         self._image_until = 0.0
@@ -96,7 +101,7 @@ class ChinaBroadnetConfigFlow(ConfigFlow, domain=DOMAIN):
                 if await async_setup_component(self.hass, webhook.DOMAIN, {}):
                     error = None
                     self._image_path, self._image_until, self._remove_image = (
-                        async_publish_captcha(self.hass, mime, image)
+                        async_publish_countdown(self.hass, mime, image)
                     )
                     if user_input:
                         suggested = {
@@ -139,7 +144,6 @@ class ChinaBroadnetConfigFlow(ConfigFlow, domain=DOMAIN):
                 vol.Required("account"): TextSelector(
                     TextSelectorConfig(type=TextSelectorType.TEL)
                 ),
-                vol.Optional("package", default=""): TextSelector(),
             }
         fields[vol.Required("consent", default=False)] = bool
         if desktop:
@@ -156,17 +160,10 @@ class ChinaBroadnetConfigFlow(ConfigFlow, domain=DOMAIN):
             ):
                 errors["image_code"] = "invalid_image_code"
             else:
-                package = (
-                    entry.data.get("package", "")
-                    if entry
-                    else user_input.get("package", "").strip()
-                )
                 name = entry.title if entry else user_input["name"].strip()
                 if not 1 <= len(name) <= 64:
                     return self.async_abort(reason="invalid_name")
-                if len(package) > 128:
-                    errors["package"] = "invalid_package"
-                elif not entry and any(
+                if not entry and any(
                     item.data.get("account") == account
                     for item in self._async_current_entries()
                 ):
@@ -182,7 +179,6 @@ class ChinaBroadnetConfigFlow(ConfigFlow, domain=DOMAIN):
                             "source": "portal",
                             "portal_mode": "desktop" if desktop else "h5",
                             "account": account,
-                            "package": package,
                         }
                         if desktop:
                             self._image_code = user_input["image_code"].strip()
@@ -219,6 +215,14 @@ class ChinaBroadnetConfigFlow(ConfigFlow, domain=DOMAIN):
             return "portal_challenge"
         except PortalError:
             return "cannot_connect"
+        self._sms_at = monotonic()
+        self._sms_until = self._sms_at + SMS_VALIDITY
+        if await async_setup_component(self.hass, webhook.DOMAIN, {}):
+            if self._remove_sms_timer:
+                self._remove_sms_timer()
+            self._sms_timer_path, self._sms_until, self._remove_sms_timer = (
+                async_publish_countdown(self.hass, "", b"", lifetime=SMS_VALIDITY)
+            )
         return None
 
     async def async_step_h5_code(self, user_input=None):
@@ -235,6 +239,8 @@ class ChinaBroadnetConfigFlow(ConfigFlow, domain=DOMAIN):
                     settings["account"], desktop
                 ):
                     errors["base"] = error
+            elif "session" not in settings and monotonic() >= self._sms_until:
+                errors["code"] = "sms_expired"
             elif "session" not in settings and not re.fullmatch(r"[0-9]{4,8}", code):
                 errors["code"] = "invalid_sms_code"
             else:
@@ -272,6 +278,8 @@ class ChinaBroadnetConfigFlow(ConfigFlow, domain=DOMAIN):
                 except PortalError:
                     errors["base"] = "cannot_connect"
                 else:
+                    if self._remove_sms_timer:
+                        self._remove_sms_timer()
                     if self.source == SOURCE_REAUTH:
                         return self.async_update_reload_and_abort(
                             self._get_reauth_entry(), data_updates=settings
@@ -286,7 +294,16 @@ class ChinaBroadnetConfigFlow(ConfigFlow, domain=DOMAIN):
                 vol.Optional("resend", default=False): bool,
             }
         return self.async_show_form(
-            step_id="h5_code", data_schema=vol.Schema(fields), errors=errors
+            step_id="h5_code",
+            data_schema=vol.Schema(fields),
+            errors=errors,
+            description_placeholders={
+                "timer": "00:00"
+                if monotonic() >= self._sms_until
+                else f"![]({self._sms_timer_path})"
+                if self._sms_timer_path
+                else ""
+            },
         )
 
     async def async_step_portal(self, user_input=None):
@@ -316,20 +333,14 @@ class ChinaBroadnetConfigFlow(ConfigFlow, domain=DOMAIN):
             entry = self._get_reauth_entry()
         elif step_id == "portal_update":
             entry = self._get_reconfigure_entry()
-        package = entry.data.get("package", "") if entry else ""
         fields = {} if entry else {vol.Required("name"): TextSelector()}
         fields[vol.Required("session")] = TextSelector(
             TextSelectorConfig(type=TextSelectorType.PASSWORD)
         )
         fields[vol.Required("curl")] = TextSelector(TextSelectorConfig(multiline=True))
-        fields[vol.Optional("package", default=package)] = TextSelector()
         errors = {}
         if user_input is not None:
-            settings = {
-                key: user_input[key]
-                for key in ("session", "package")
-                if key in user_input
-            }
+            settings = {"session": user_input["session"]}
             http = async_create_clientsession(
                 self.hass, auto_cleanup=False, cookie_jar=DummyCookieJar()
             )
@@ -377,9 +388,11 @@ class ChinaBroadnetConfigFlow(ConfigFlow, domain=DOMAIN):
         entry = self._get_reconfigure_entry()
         source = entry.data["source"]
         if source == "portal":
-            if entry.data.get("portal_mode") in ("h5", "desktop"):
-                return await self.async_step_h5_update(user_input)
-            return await self.async_step_portal_update(user_input)
+            if not entry.data.get("portal_mode"):
+                return self.async_show_menu(
+                    step_id="reconfigure", menu_options=["h5_update", "portal_update"]
+                )
+            return await self.async_step_h5_update(user_input)
         if source == "manual":
             return await self._async_manual("manual_update", user_input)
         return await self._async_sms("sms_update", user_input)
@@ -387,22 +400,45 @@ class ChinaBroadnetConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_h5_update(self, user_input=None):
         """Update the selected package without requesting a new login code."""
         entry = self._get_reconfigure_entry()
+        packages = (
+            entry.runtime_data.data.get("packages", {}) if entry.runtime_data else {}
+        )
+        names = sorted(
+            {
+                pack["name"]
+                for pack in packages.values()
+                if pack["category"] == "general"
+            }
+        )
+        selected = entry.data.get("packages")
+        if "packages" not in entry.data and (legacy := entry.data.get("package")):
+            selected = [legacy]
+        defaults = (
+            names if selected is None else [name for name in names if name in selected]
+        )
         errors = {}
-        if user_input is not None:
-            package = user_input.get("package", "").strip()
-            if len(package) <= 128:
+        if user_input is not None and names:
+            selection = user_input.get("packages", [])
+            if set(selection) <= set(names):
                 return self.async_update_reload_and_abort(
-                    entry, data_updates={"package": package}
+                    entry,
+                    data_updates={
+                        "packages": None if set(selection) == set(names) else selection
+                    },
                 )
-            errors["package"] = "invalid_package"
+            errors["base"] = "invalid_package"
         return self.async_show_form(
             step_id="h5_update",
             data_schema=vol.Schema(
                 {
-                    vol.Optional(
-                        "package", default=entry.data.get("package", "")
-                    ): TextSelector()
+                    vol.Optional("packages", default=defaults): SelectSelector(
+                        SelectSelectorConfig(
+                            options=names, multiple=True, mode=SelectSelectorMode.LIST
+                        )
+                    )
                 }
+                if names
+                else {}
             ),
             errors=errors,
         )

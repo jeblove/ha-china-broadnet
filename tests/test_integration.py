@@ -188,6 +188,23 @@ async def test_native_timer_expires_traffic_at_beijing_midnight(hass, freezer):
     assert state(hass, entry, "balance") == "12.0"
 
 
+def mock_resources(aioclient_mock, balance_url, rows=()):
+    aioclient_mock.post(
+        balance_url.rsplit("/", 1)[0] + "/qryPhonePackInfo",
+        json={"status": "000000", "ok": True, "data": {"packName": "Example plan"}},
+        headers={"content-type": "application/json"},
+    )
+    aioclient_mock.post(
+        balance_url.rsplit("/", 1)[0] + "/qryUserRes",
+        json={
+            "status": "000000",
+            "ok": True,
+            "data": {"intfResultBean": {"userResList": list(rows)}},
+        },
+        headers={"content-type": "application/json"},
+    )
+
+
 async def test_portal_setup_refresh_and_reauth(hass, aioclient_mock, freezer):
     """Exercise the native HTTP client through the real config entry lifecycle."""
     import json
@@ -240,6 +257,7 @@ async def test_portal_setup_refresh_and_reauth(hass, aioclient_mock, freezer):
     assert blocked["errors"] == {"base": "portal_challenge"}
     aioclient_mock.clear_requests()
     aioclient_mock.post(url, json=success, headers={"content-type": "application/json"})
+    mock_resources(aioclient_mock, url)
     result = await submit(hass, form, data)
     assert result["type"] is FlowResultType.CREATE_ENTRY, result.get("errors")
     entry = result["result"]
@@ -253,6 +271,7 @@ async def test_portal_setup_refresh_and_reauth(hass, aioclient_mock, freezer):
         headers={"content-type": "application/json"},
     )
     response.cookies.update(SimpleCookie("SERVERID=renewed; Path=/"))
+    mock_resources(aioclient_mock, url)
     freezer.tick(timedelta(minutes=8, seconds=1))
     async_fire_time_changed(hass)
     await hass.async_block_till_done()
@@ -288,6 +307,7 @@ async def test_portal_setup_refresh_and_reauth(hass, aioclient_mock, freezer):
 
     aioclient_mock.clear_requests()
     aioclient_mock.post(url, json=success, headers={"content-type": "application/json"})
+    mock_resources(aioclient_mock, url)
     renewed = settings(session_id="new-example-session")
     result = await submit(hass, flow, renewed)
     assert result["reason"] == "reauth_successful"
@@ -298,10 +318,34 @@ async def test_portal_setup_refresh_and_reauth(hass, aioclient_mock, freezer):
     assert state(hass, entry, "balance") == "12.01"
 
 
-async def test_h5_sms_login_and_reauthentication(hass, aioclient_mock):
+async def test_h5_sms_login_and_reauthentication(hass, aioclient_mock, freezer):
     """Only user submission sends an SMS and HA reuses the verified session."""
     from custom_components.china_broadnet.portal import H5_ORIGIN
+    from homeassistant.components import webhook
+    from homeassistant.util.aiohttp import MockRequest
 
+    freezer.move_to("2026-11-09 00:00:00")
+    row = {
+        "busiType": "5",
+        "highFee": "1048576",
+        "balance": "524288",
+        "startTime": "2026-11-01 00:00:00",
+        "endTime": "2026-12-01 00:00:00",
+    }
+    rows = [
+        {**row, "discntName": name}
+        for name in ("示例通用甲", "示例通用乙", "示例定向赠送")
+    ]
+    rows.append(
+        {
+            **row,
+            "busiType": "1",
+            "itemTypeCode": "2",
+            "itemName": "语音免费资源",
+            "highFee": "200",
+            "balance": "0",
+        }
+    )
     api = f"{H5_ORIGIN}/contact-web/api"
     headers = {"content-type": "application/json"}
     sms_url = f"{api}/login/getVerifyCode"
@@ -321,9 +365,23 @@ async def test_h5_sms_login_and_reauthentication(hass, aioclient_mock):
     form = await submit(hass, form, data)
     assert form["step_id"] == "h5_code"
     assert aioclient_mock.call_count == 1
+    timer = form["description_placeholders"]["timer"].removesuffix(")")
+    request = MockRequest(b"", mock_source="test", remote="127.0.0.1")
+    countdown = await webhook.async_handle_webhook(
+        hass, timer.rsplit("/", 1)[1], request
+    )
+    assert ">05:00<" in countdown.text
     early = await submit(hass, form, {"resend": True})
     assert early["errors"] == {"base": "sms_cooldown"}
     assert aioclient_mock.call_count == 1
+    freezer.tick(timedelta(minutes=5))
+    expired = await submit(hass, form, {"code": "123456"})
+    assert expired["errors"] == {"code": "sms_expired"}
+    assert expired["description_placeholders"]["timer"] == "00:00"
+    assert aioclient_mock.call_count == 1
+    form = await submit(hass, form, {"resend": True})
+    assert form["description_placeholders"]["timer"] != timer + ")"
+    assert aioclient_mock.call_count == 2
 
     aioclient_mock.clear_requests()
     aioclient_mock.post(login_url, json={"status": "DENIED"}, headers=headers)
@@ -338,8 +396,22 @@ async def test_h5_sms_login_and_reauthentication(hass, aioclient_mock):
         headers=headers,
     )
     aioclient_mock.post(
-        balance_url, json={**success, "data": {"balance": "27.42"}}, headers=headers
+        balance_url,
+        json={
+            **success,
+            "data": {
+                "balance": "27.42",
+                "contentList": [
+                    {
+                        "title": "当月消费",
+                        "list": [{"name": "消费合计", "value": "7.25"}],
+                    }
+                ],
+            },
+        },
+        headers=headers,
     )
+    mock_resources(aioclient_mock, balance_url, rows)
     result = await submit(hass, form, {"code": "654321"})
     assert result["type"] is FlowResultType.CREATE_ENTRY, result.get("errors")
     entry = result["result"]
@@ -349,6 +421,26 @@ async def test_h5_sms_login_and_reauthentication(hass, aioclient_mock):
     assert "cookie" not in entry.data
     assert state(hass, entry, "balance") == "27.42"
     assert aioclient_mock.mock_calls[-1][3]["Session"] == "h5-session"
+
+    assert state(hass, entry, "monthly_spend") == "7.25"
+    assert state(hass, entry, "voice_remaining") == "0"
+    assert state(hass, entry, "plan_name") == "Example plan"
+    assert float(state(hass, entry, "data_total")) == 2.147483648
+    package_id = next(
+        key
+        for key, pack in entry.runtime_data.data["packages"].items()
+        if pack["category"] == "directed"
+    )
+    assert float(state(hass, entry, f"package_{package_id}")) == 0.536870912
+    assert (
+        state(hass, entry, f"package_{package_id}_expiry")
+        == "2026-11-30T16:00:00+00:00"
+    )
+    select = await reconfigure(hass, entry)
+    assert select["data_schema"]({})["packages"] == ["示例通用乙", "示例通用甲"]
+    selected = await submit(hass, select, {"packages": ["示例通用甲"]})
+    assert selected["reason"] == "reconfigure_successful"
+    assert float(state(hass, entry, "data_total")) == 1.073741824
 
     duplicate_form = await start_flow(hass, "h5_start")
     duplicate = await submit(hass, duplicate_form, {**data, "name": "Another alias"})
@@ -375,6 +467,7 @@ async def test_h5_sms_login_and_reauthentication(hass, aioclient_mock):
     aioclient_mock.post(
         balance_url, json={**success, "data": {"balance": "0"}}, headers=headers
     )
+    mock_resources(aioclient_mock, balance_url)
     result = await submit(hass, form, {"code": "123456"})
     assert result["reason"] == "reauth_successful"
     assert entry.data["session"] == "new-h5-session"
@@ -472,6 +565,7 @@ async def test_desktop_captcha_shows_image_then_requests_sms(
         },
         headers=headers,
     )
+    mock_resources(aioclient_mock, f"{api}/busi/qryBalanceFee")
     result = await submit(hass, form, {"code": "123456"})
     assert result["type"] is FlowResultType.CREATE_ENTRY, result.get("errors")
     entry = result["result"]
