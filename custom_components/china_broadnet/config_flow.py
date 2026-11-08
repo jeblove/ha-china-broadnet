@@ -3,18 +3,22 @@
 from datetime import UTC, datetime
 
 import voluptuous as vol
+from aiohttp import DummyCookieJar
 
 from homeassistant.components import webhook
 from homeassistant.config_entries import ConfigFlow
+from homeassistant.helpers.aiohttp_client import async_create_clientsession
 from homeassistant.helpers.selector import (
     SelectOptionDict,
     SelectSelector,
     SelectSelectorConfig,
     TextSelector,
     TextSelectorConfig,
+    TextSelectorType,
 )
 
 from .const import DOMAIN, TRAFFIC_KEYS
+from .portal import PortalAuthError, PortalClient, PortalError
 from .sms import compile_template
 from .usage import amount, group_for, make_report
 
@@ -29,7 +33,74 @@ class ChinaBroadnetConfigFlow(ConfigFlow, domain=DOMAIN):
 
     async def async_step_user(self, user_input=None):
         """Choose how to supply readings."""
-        return self.async_show_menu(step_id="user", menu_options=["manual", "sms"])
+        return self.async_show_menu(
+            step_id="user", menu_options=["portal", "manual", "sms"]
+        )
+
+    async def async_step_portal(self, user_input=None):
+        """Connect an authorized official website session."""
+        return await self._async_portal("portal", user_input)
+
+    async def async_step_reauth(self, _entry_data):
+        """Start replacement of an expired website session."""
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(self, user_input=None):
+        """Validate a new session for the same account."""
+        return await self._async_portal("reauth_confirm", user_input)
+
+    async def async_step_portal_update(self, user_input=None):
+        """Update the website session or selected traffic package."""
+        return await self._async_portal("portal_update", user_input)
+
+    async def _async_portal(self, step_id, user_input):
+        entry = None
+        if step_id == "reauth_confirm":
+            entry = self._get_reauth_entry()
+        elif step_id == "portal_update":
+            entry = self._get_reconfigure_entry()
+        package = entry.data.get("package", "") if entry else ""
+        fields = {} if entry else {vol.Required("name"): TextSelector()}
+        for key in ("session", "cookie"):
+            fields[vol.Required(key)] = TextSelector(
+                TextSelectorConfig(type=TextSelectorType.PASSWORD)
+            )
+        fields[vol.Required("user_agent")] = TextSelector()
+        fields[vol.Optional("package", default=package)] = TextSelector()
+        errors = {}
+        if user_input is not None:
+            settings = {
+                key: user_input[key]
+                for key in ("session", "cookie", "user_agent", "package")
+                if key in user_input
+            }
+            http = async_create_clientsession(
+                self.hass, auto_cleanup=False, cookie_jar=DummyCookieJar()
+            )
+            try:
+                client = PortalClient(http, settings)
+                if entry and client.account != PortalClient(http, entry.data).account:
+                    return self.async_abort(reason="wrong_account")
+                await client.async_balance()
+            except ValueError, TypeError, RecursionError, KeyError:
+                errors["base"] = "invalid_portal_session"
+            except PortalAuthError:
+                errors["base"] = "portal_auth_failed"
+            except PortalError:
+                errors["base"] = "cannot_connect"
+            else:
+                if entry:
+                    return self.async_update_reload_and_abort(
+                        entry, data_updates=settings
+                    )
+                return await self._async_create(
+                    user_input["name"], {"source": "portal", **settings}
+                )
+            finally:
+                http.detach()
+        return self.async_show_form(
+            step_id=step_id, data_schema=vol.Schema(fields), errors=errors
+        )
 
     async def async_step_manual(self, user_input=None):
         """Set up manual observations from the official hall."""
@@ -41,7 +112,10 @@ class ChinaBroadnetConfigFlow(ConfigFlow, domain=DOMAIN):
 
     async def async_step_reconfigure(self, user_input=None):
         """Update a reading or edit SMS settings."""
-        if self._get_reconfigure_entry().data["source"] == "manual":
+        source = self._get_reconfigure_entry().data["source"]
+        if source == "portal":
+            return await self.async_step_portal_update(user_input)
+        if source == "manual":
             return await self._async_manual("manual_update", user_input)
         return await self._async_sms("sms_update", user_input)
 

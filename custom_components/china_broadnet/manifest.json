@@ -1,12 +1,16 @@
 {
   "domain": "china_broadnet",
   "name": "China Broadnet",
-  "codeowners": ["@jeblove"],
+  "codeowners": [
+    "@jeblove"
+  ],
   "config_flow": true,
-  "dependencies": ["webhook"],
+  "dependencies": [
+    "webhook"
+  ],
   "documentation": "https://github.com/jeblove/ha-china-broadnet",
   "integration_type": "service",
-  "iot_class": "local_push",
+  "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/jeblove/ha-china-broadnet/issues",
   "version": "0.1.0"
 }

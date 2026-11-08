@@ -6,7 +6,8 @@
         "title": "选择数据源",
         "menu_options": {
           "manual": "录入营业厅实查值",
-          "sms": "接收转发短信（实验性）"
+          "sms": "接收转发短信（实验性）",
+          "portal": "网上营业厅会话（实验性）"
         }
       },
       "manual": {
@@ -51,6 +52,37 @@
           "unit_base": "B/KB/MB/GB 输入的换算进制",
           "rotate": "生成新的 Webhook 路径"
         }
+      },
+      "portal": {
+        "title": "连接网上营业厅会话",
+        "description": "请从已登录的本人账户标签页导入凭据。包名留空时只查余额。具体步骤见项目文档。",
+        "data": {
+          "name": "账户别名",
+          "session": "导出的网页标签页会话",
+          "cookie": "Cookie 请求头",
+          "user_agent": "User-Agent 请求头",
+          "package": "本月套餐通用流量包完整名称（可选）"
+        }
+      },
+      "portal_update": {
+        "title": "更新网上营业厅设置",
+        "description": "请从已登录的本人账户标签页导入凭据。包名留空时只查余额。具体步骤见项目文档。",
+        "data": {
+          "session": "导出的网页标签页会话",
+          "cookie": "Cookie 请求头",
+          "user_agent": "User-Agent 请求头",
+          "package": "本月套餐通用流量包完整名称（可选）"
+        }
+      },
+      "reauth_confirm": {
+        "title": "更新已失效的网上营业厅会话",
+        "description": "请从已登录的本人账户标签页导入凭据。包名留空时只查余额。具体步骤见项目文档。",
+        "data": {
+          "session": "导出的网页标签页会话",
+          "cookie": "Cookie 请求头",
+          "user_agent": "User-Agent 请求头",
+          "package": "本月套餐通用流量包完整名称（可选）"
+        }
       }
     },
     "error": {
@@ -58,12 +90,17 @@
       "missing_values": "请至少录入一项读数。",
       "invalid_sender": "请输入不超过 64 个字符的完整发送人。",
       "invalid_template": "请使用完整模板和文档中规定的占位符。",
-      "missing_template": "请至少填写一个短信模板。"
+      "missing_template": "请至少填写一个短信模板。",
+      "invalid_portal_session": "请检查导出的网页会话和请求头。",
+      "portal_auth_failed": "广电拒绝了该会话，请更新网页凭据。",
+      "cannot_connect": "广电查询失败，请稍后再试。"
     },
     "abort": {
       "already_configured": "此账户别名已配置。",
       "invalid_name": "请使用 1 至 64 个字符的账户别名。",
-      "reconfigure_successful": "中国广电配置已更新。"
+      "reconfigure_successful": "中国广电配置已更新。",
+      "wrong_account": "请使用同一广电账户的会话。",
+      "reauth_successful": "网上营业厅会话已更新。"
     }
   },
   "entity": {

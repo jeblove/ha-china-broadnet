@@ -184,3 +184,68 @@ async def test_native_timer_expires_traffic_at_beijing_midnight(hass, freezer):
     await hass.async_block_till_done()
     assert state(hass, entry, "data_remaining") == STATE_UNAVAILABLE
     assert state(hass, entry, "balance") == "12.0"
+
+
+async def test_portal_setup_refresh_and_reauth(hass, aioclient_mock):
+    """Exercise the native HTTP client through the real config entry lifecycle."""
+    import json
+
+    from cryptography.hazmat.primitives import padding
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+
+    from custom_components.china_broadnet.portal import (
+        _SESSION_IV,
+        _SESSION_KEY,
+        ORIGIN,
+    )
+
+    def protect(value):
+        pad = padding.PKCS7(128).padder()
+        padded = pad.update(json.dumps(value).encode()) + pad.finalize()
+        encrypt = Cipher(
+            algorithms.AES(_SESSION_KEY), modes.CBC(_SESSION_IV)
+        ).encryptor()
+        return (encrypt.update(padded) + encrypt.finalize()).hex()
+
+    def settings(account="19200000000", session_id="example-session"):
+        return {
+            "session": json.dumps(
+                {
+                    "broadnetUserPhoneInfo": protect({"accessNumber": account}),
+                    "broadnetUserSessionId": protect({"id": session_id}),
+                }
+            ),
+            "cookie": "example=authorized",
+            "user_agent": "Example browser",
+        }
+
+    url = f"{ORIGIN}/contact-web/api/busi/qryBalanceFee"
+    success = {
+        "status": "000000",
+        "ok": True,
+        "data": {"intfResultBean": {"balance": "1201", "spayFee": "0"}},
+    }
+    aioclient_mock.post(url, json=success, headers={"content-type": "application/json"})
+    form = await start_flow(hass, "portal")
+    result = await submit(hass, form, {"name": "Portal", **settings()})
+    assert result["type"] is FlowResultType.CREATE_ENTRY, result.get("errors")
+    entry = result["result"]
+    assert state(hass, entry, "balance") == "12.01"
+
+    aioclient_mock.clear_requests()
+    aioclient_mock.post(
+        url, text="<html>Challenge</html>", headers={"content-type": "text/html"}
+    )
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    assert state(hass, entry, "balance") == STATE_UNAVAILABLE
+    (flow,) = hass.config_entries.flow.async_progress_by_handler(DOMAIN)
+    assert flow["step_id"] == "reauth_confirm"
+
+    aioclient_mock.clear_requests()
+    aioclient_mock.post(url, json=success, headers={"content-type": "application/json"})
+    renewed = settings(session_id="new-example-session")
+    result = await submit(hass, flow, renewed)
+    assert result["reason"] == "reauth_successful"
+    assert entry.data["session"] == renewed["session"]
+    assert state(hass, entry, "balance") == "12.01"

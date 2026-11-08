@@ -2,14 +2,19 @@
 
 import logging
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+
+from aiohttp import DummyCookieJar
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers.aiohttp_client import async_create_clientsession
 from homeassistant.helpers.event import async_track_point_in_utc_time
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import DOMAIN
+from .portal import PortalAuthError, PortalClient, PortalError
 from .usage import current_values, report_window
 
 type BroadnetEntry = ConfigEntry[UsageCoordinator]
@@ -19,18 +24,35 @@ class UsageCoordinator(DataUpdateCoordinator[dict]):
     """Publish incoming reports and schedule their freshness transitions."""
 
     def __init__(self, hass: HomeAssistant, entry: BroadnetEntry) -> None:
+        portal = entry.data["source"] == "portal"
         super().__init__(
             hass,
             logging.getLogger(__name__),
             config_entry=entry,
             name=DOMAIN,
+            update_interval=timedelta(hours=1) if portal else None,
             always_update=False,
         )
         self.entry = entry
+        self._portal = (
+            PortalClient(
+                async_create_clientsession(hass, cookie_jar=DummyCookieJar()),
+                entry.data,
+            )
+            if portal
+            else None
+        )
         self._cancel_deadline: Callable[[], None] | None = None
         entry.async_on_unload(self._async_cancel_deadline)
 
     async def _async_update_data(self) -> dict:
+        if self._portal is not None:
+            try:
+                return await self._portal.async_read()
+            except PortalAuthError as err:
+                raise ConfigEntryAuthFailed("Refresh the website session") from err
+            except PortalError as err:
+                raise UpdateFailed(str(err)) from err
         return self._async_snapshot(datetime.now(UTC))
 
     @callback

@@ -6,7 +6,8 @@
         "title": "Choose a data source",
         "menu_options": {
           "manual": "Enter official hall readings",
-          "sms": "Receive forwarded SMS (experimental)"
+          "sms": "Receive forwarded SMS (experimental)",
+          "portal": "Official website session (experimental)"
         }
       },
       "manual": {
@@ -51,6 +52,37 @@
           "unit_base": "Base for B/KB/MB/GB input",
           "rotate": "Generate a new webhook path"
         }
+      },
+      "portal": {
+        "title": "Connect the official website session",
+        "description": "Import credentials from your signed-in account tab. Leave the package name blank for balance only. See the integration documentation for instructions.",
+        "data": {
+          "name": "Account alias",
+          "session": "Exported website tab session",
+          "cookie": "Cookie request header",
+          "user_agent": "User-Agent request header",
+          "package": "Exact monthly general package name (optional)"
+        }
+      },
+      "portal_update": {
+        "title": "Update the website settings",
+        "description": "Import credentials from your signed-in account tab. Leave the package name blank for balance only. See the integration documentation for instructions.",
+        "data": {
+          "session": "Exported website tab session",
+          "cookie": "Cookie request header",
+          "user_agent": "User-Agent request header",
+          "package": "Exact monthly general package name (optional)"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Renew the website session",
+        "description": "Import credentials from your signed-in account tab. Leave the package name blank for balance only. See the integration documentation for instructions.",
+        "data": {
+          "session": "Exported website tab session",
+          "cookie": "Cookie request header",
+          "user_agent": "User-Agent request header",
+          "package": "Exact monthly general package name (optional)"
+        }
       }
     },
     "error": {
@@ -58,12 +90,17 @@
       "missing_values": "Enter at least one reading.",
       "invalid_sender": "Enter an exact sender of up to 64 characters.",
       "invalid_template": "Use a complete template and the documented placeholders.",
-      "missing_template": "Enter at least one template."
+      "missing_template": "Enter at least one template.",
+      "invalid_portal_session": "Check the exported session and request headers.",
+      "portal_auth_failed": "The carrier rejected the session. Refresh the website credentials.",
+      "cannot_connect": "The carrier query failed. Try again later."
     },
     "abort": {
       "already_configured": "This account alias is already configured.",
       "invalid_name": "Use an account alias of 1–64 characters.",
-      "reconfigure_successful": "China Broadnet was updated."
+      "reconfigure_successful": "China Broadnet was updated.",
+      "wrong_account": "Use a session for the same account.",
+      "reauth_successful": "The website session was updated."
     }
   },
   "entity": {
