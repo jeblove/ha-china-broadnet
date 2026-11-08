@@ -28,6 +28,24 @@ def traffic_gb(number: str, unit: str, base: int) -> float:
     return float(amount(number) * (1024 if binary else 1000) ** power / 1000**3)
 
 
+def report_window(group: str, observed: datetime) -> tuple[datetime, datetime]:
+    """Compute when a stored reading is usable."""
+    expires = observed + MAX_AGE
+    if group == "traffic":
+        local = observed.astimezone(SHANGHAI)
+        next_month = local.replace(
+            year=local.year + (local.month == 12),
+            month=local.month % 12 + 1,
+            day=1,
+            hour=0,
+            minute=0,
+            second=0,
+            microsecond=0,
+        )
+        expires = min(expires, next_month)
+    return observed, expires
+
+
 def current_values(reports: dict, now: datetime) -> dict:
     """Return values that are still current and the last accepted timestamp."""
     data = {}
@@ -35,10 +53,8 @@ def current_values(reports: dict, now: datetime) -> dict:
         observed = datetime.fromisoformat(report["observed"])
         updated = datetime.fromisoformat(report["updated"])
         data["last_updated"] = max(data.get("last_updated", updated), updated)
-        same_month = observed.astimezone(SHANGHAI).date().replace(day=1) == (
-            now.astimezone(SHANGHAI).date().replace(day=1)
-        )
-        if now - observed < MAX_AGE and (group != "traffic" or same_month):
+        starts, expires = report_window(group, observed)
+        if starts <= now < expires:
             data.update(report["values"])
     return data
 

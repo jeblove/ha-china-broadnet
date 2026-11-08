@@ -168,3 +168,19 @@ async def test_sms_push_rotate_and_expiry(
     assert await hass.config_entries.async_unload(entry.entry_id)
     await send(saved_path, "示例余额：4元")
     assert entry.data["reports"]["balance"]["values"]["balance"] == 3
+
+
+async def test_native_timer_expires_traffic_at_beijing_midnight(hass, freezer):
+    freezer.move_to(datetime(2026, 10, 31, 15, 59, 59, tzinfo=UTC))
+    form = await start_flow(hass, "manual")
+    entry = (
+        await submit(
+            hass, form, {"name": "Boundary", "balance": "12", "data_remaining": "1"}
+        )
+    )["result"]
+    assert state(hass, entry, "data_remaining") == "1.0"
+    freezer.tick(timedelta(seconds=1))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    assert state(hass, entry, "data_remaining") == STATE_UNAVAILABLE
+    assert state(hass, entry, "balance") == "12.0"

@@ -1,20 +1,22 @@
 """Share usage data and retire old measurements across all sensors."""
 
 import logging
-from datetime import UTC, datetime, timedelta
+from collections.abc import Callable
+from datetime import UTC, datetime
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.event import async_track_point_in_utc_time
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .const import DOMAIN
-from .usage import current_values
+from .usage import current_values, report_window
 
 type BroadnetEntry = ConfigEntry[UsageCoordinator]
 
 
 class UsageCoordinator(DataUpdateCoordinator[dict]):
-    """Publish incoming reports and periodically check their freshness."""
+    """Publish incoming reports and schedule their freshness transitions."""
 
     def __init__(self, hass: HomeAssistant, entry: BroadnetEntry) -> None:
         super().__init__(
@@ -22,13 +24,46 @@ class UsageCoordinator(DataUpdateCoordinator[dict]):
             logging.getLogger(__name__),
             config_entry=entry,
             name=DOMAIN,
-            update_interval=timedelta(minutes=5),
             always_update=False,
         )
         self.entry = entry
+        self._cancel_deadline: Callable[[], None] | None = None
+        entry.async_on_unload(self._async_cancel_deadline)
 
     async def _async_update_data(self) -> dict:
-        return current_values(self.entry.data["reports"], datetime.now(UTC))
+        return self._async_snapshot(datetime.now(UTC))
+
+    @callback
+    def _async_cancel_deadline(self) -> None:
+        if self._cancel_deadline is not None:
+            self._cancel_deadline()
+            self._cancel_deadline = None
+
+    @callback
+    def _async_snapshot(self, now: datetime) -> dict:
+        reports = self.entry.data["reports"]
+        self._async_cancel_deadline()
+        deadline = min(
+            (
+                point
+                for group, report in reports.items()
+                for point in report_window(
+                    group, datetime.fromisoformat(report["observed"])
+                )
+                if point > now
+            ),
+            default=None,
+        )
+        if deadline is not None:
+            self._cancel_deadline = async_track_point_in_utc_time(
+                self.hass, self._async_deadline_reached, deadline
+            )
+        return current_values(reports, now)
+
+    @callback
+    def _async_deadline_reached(self, _deadline: datetime) -> None:
+        self._cancel_deadline = None
+        self.async_set_updated_data(self._async_snapshot(datetime.now(UTC)))
 
     @callback
     def async_accept_report(self, group: str, report: dict, now: datetime) -> None:
@@ -37,4 +72,4 @@ class UsageCoordinator(DataUpdateCoordinator[dict]):
         self.hass.config_entries.async_update_entry(
             self.entry, data={**self.entry.data, "reports": reports}
         )
-        self.async_set_updated_data(current_values(reports, now))
+        self.async_set_updated_data(self._async_snapshot(now))
