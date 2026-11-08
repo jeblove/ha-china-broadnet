@@ -14,7 +14,7 @@ from homeassistant.helpers.event import async_track_point_in_utc_time
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import DOMAIN
-from .portal import PortalAuthError, PortalClient, PortalError
+from .portal import PortalAuthError, PortalChallengeError, PortalClient, PortalError
 from .usage import current_values, report_window
 
 type BroadnetEntry = ConfigEntry[UsageCoordinator]
@@ -30,7 +30,7 @@ class UsageCoordinator(DataUpdateCoordinator[dict]):
             logging.getLogger(__name__),
             config_entry=entry,
             name=DOMAIN,
-            update_interval=timedelta(hours=1) if portal else None,
+            update_interval=timedelta(minutes=8) if portal else None,
             always_update=False,
         )
         self.entry = entry
@@ -52,6 +52,8 @@ class UsageCoordinator(DataUpdateCoordinator[dict]):
                 data = await self._portal.async_read()
             except PortalAuthError as err:
                 raise ConfigEntryAuthFailed("Refresh the website session") from err
+            except PortalChallengeError as err:
+                raise UpdateFailed(str(err), retry_after=3600) from err
             except PortalError as err:
                 raise UpdateFailed(str(err)) from err
             cookie = self._portal.cookie

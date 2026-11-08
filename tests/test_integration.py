@@ -252,7 +252,7 @@ async def test_portal_setup_refresh_and_reauth(hass, aioclient_mock, freezer):
         headers={"content-type": "application/json"},
     )
     response.cookies.update(SimpleCookie("SERVERID=renewed; Path=/"))
-    freezer.tick(timedelta(minutes=61))
+    freezer.tick(timedelta(minutes=8, seconds=1))
     async_fire_time_changed(hass)
     await hass.async_block_till_done()
     assert state(hass, entry, "balance") == "0.0"
@@ -269,6 +269,10 @@ async def test_portal_setup_refresh_and_reauth(hass, aioclient_mock, freezer):
     assert state(hass, entry, "balance") == STATE_UNAVAILABLE
     assert state(hass, entry, "last_updated") == last_success
     assert not hass.config_entries.flow.async_progress_by_handler(DOMAIN)
+    freezer.tick(timedelta(minutes=8, seconds=1))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    assert aioclient_mock.call_count == 1
 
     aioclient_mock.clear_requests()
     aioclient_mock.post(
