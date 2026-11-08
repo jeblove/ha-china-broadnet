@@ -14,15 +14,13 @@ jobs:
     runs-on: [self-hosted, Linux, X64]
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.14"
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2
         with:
           version: "0.12.23"
       - name: Run Ruff and pytest
         run: |
-          uv venv .venv
+          # Recorder needs a newer SQLite than the self-hosted runner provides.
+          uv venv --python 3.14.7 --managed-python .venv
           uv pip install --python .venv/bin/python -r requirements-dev.txt
           .venv/bin/ruff check .
           .venv/bin/ruff format --check .
