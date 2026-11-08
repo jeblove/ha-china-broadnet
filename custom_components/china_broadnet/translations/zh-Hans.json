@@ -8,7 +8,8 @@
           "manual": "录入营业厅实查值",
           "sms": "接收转发短信（实验性）",
           "portal": "网上营业厅会话（实验性）",
-          "h5_start": "手机号和短信验证码登录"
+          "h5_start": "手机号和短信验证码登录",
+          "desktop_start": "图形验证码登录（实验性）"
         }
       },
       "manual": {
@@ -106,6 +107,21 @@
         "data": {
           "package": "本月套餐通用流量包的准确名称（可选）"
         }
+      },
+      "desktop_start": {
+        "title": "图形验证码登录（实验性）",
+        "description": "请从局域网访问 HA，填写下图字符及手机号。提交后申请一条登录短信。请在[广电网上营业厅](https://www.10099.com.cn/login.html)查看用户服务协议及隐私保护政策。\n\n![广电图形验证码]({image})",
+        "data": {
+          "name": "账号别名",
+          "account": "手机号",
+          "package": "本月套餐通用流量包的准确名称（可选）",
+          "consent": "我同意运营商协议，并申请发送短信验证码",
+          "image_code": "图形验证码"
+        }
+      },
+      "desktop_retry": {
+        "title": "图形验证码暂不可用",
+        "description": "可以提交本页重试获取图片，或关闭后使用手机号和短信验证码登录。此步骤不会发送短信。"
       }
     },
     "error": {
@@ -124,7 +140,10 @@
       "invalid_package": "请输入不超过 128 字符的流量包名称。",
       "sms_cooldown": "请间隔至少 60 秒再请求验证码。",
       "sms_rejected": "广电拒绝了短信发送请求，请稍后再试。",
-      "invalid_sms_code": "请输入有效的短信验证码，并确认验证码是否过期。"
+      "invalid_sms_code": "请输入有效的短信验证码，并确认验证码是否过期。",
+      "captcha_challenge": "广电向 HA 返回了网页验证页，未提供图形验证码。",
+      "invalid_image_code": "请输入图片中的字符。",
+      "invalid_desktop_codes": "广电拒绝了图形验证码或短信验证码。若图形验证码已失效，请重新打开备用登录流程。"
     },
     "abort": {
       "already_configured": "此账户别名已配置。",

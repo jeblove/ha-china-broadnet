@@ -18,7 +18,7 @@
 需要 Home Assistant Core **2026.10.0 或以上**。无需修改 `configuration.yaml`。
 
 - **开发预览手动安装**：从包含集成的分支下载源码，将完整的 `custom_components/china_broadnet/` 复制到 HA 配置目录下的 `custom_components/`，然后重启 HA。
-- **HACS 自定义仓库**：仓库公开且默认分支包含本集成后，在 HACS 菜单进入「自定义仓库」，填写 `https://github.com/jeblove/ha-china-broadnet`，类别选择「集成」，下载 China Broadnet 后重启。当前私有开发分支使用手动安装。[HACS 私有仓库说明](https://www.hacs.xyz/docs/faq/private_repositories/)
+- **HACS 自定义仓库**：在 HACS 菜单进入「自定义仓库」，填写 `https://github.com/jeblove/ha-china-broadnet`，类别选择「集成」，下载 China Broadnet 后重启。[HACS 自定义仓库说明](https://www.hacs.xyz/docs/faq/custom_repositories/)
 
 进入 **设置 → 设备与服务 → 添加集成**，搜索 **中国广电** 或 **China Broadnet**。支持简体中文和英文。为每张卡设置不同的别名，避免使用真实手机号。
 
@@ -30,6 +30,12 @@
 4. 会话失效时，在 HA 的重新认证提示中为原手机号重新申请短信验证码。轮询不会发短信。
 
 HA 配置项保存手机号、会话凭据和流量包设置，可能进入备份。短信验证码仅用于当前登录请求。
+
+### 图形验证码备用登录（实验性）
+
+从局域网访问 HA 并选择「图形验证码登录」。如果桌面官网向 HA 返回验证码图片，HA 会在表单内显示图片。填写手机号及图形验证码后，提交表单申请短信，再填入短信验证码。图片链接仅在局域网有效，两分钟后失效。若官网向 HA 返回网页验证页，流程停在取图阶段。此时可以返回使用移动网页短信登录。
+
+备用流程已通过合成响应测试。当前测试出口的原生 HTTP 请求仍被桌面官网的网页验证拦截，尚未完成真实备用登录。若移动网页今后启用图形验证码，需要核对其新的接口契约后接入现有图片显示流程。
 
 ### 导入网上营业厅会话（实验性）
 

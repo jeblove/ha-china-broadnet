@@ -313,17 +313,23 @@ class PortalClient:
                 raise ValueError("Invalid website session")
             self._headers = {}
             return
-        raw = settings["session"]
-        if not isinstance(raw, str) or len(raw) > 10_000:
-            raise ValueError("Invalid website session")
-        storage = json.loads(raw)
-        if not isinstance(storage, dict) or set(storage) != {
-            "broadnetUserPhoneInfo",
-            "broadnetUserSessionId",
-        }:
-            raise ValueError("Invalid website session")
-        self.account = _storage_value(storage["broadnetUserPhoneInfo"], "accessNumber")
-        self._session_id = _storage_value(storage["broadnetUserSessionId"], "id")
+        if settings.get("portal_mode") == "desktop":
+            self.account = settings["account"]
+            self._session_id = settings["session"]
+        else:
+            raw = settings["session"]
+            if not isinstance(raw, str) or len(raw) > 10_000:
+                raise ValueError("Invalid website session")
+            storage = json.loads(raw)
+            if not isinstance(storage, dict) or set(storage) != {
+                "broadnetUserPhoneInfo",
+                "broadnetUserSessionId",
+            }:
+                raise ValueError("Invalid website session")
+            self.account = _storage_value(
+                storage["broadnetUserPhoneInfo"], "accessNumber"
+            )
+            self._session_id = _storage_value(storage["broadnetUserSessionId"], "id")
         if not valid_phone(self.account) or not _valid_session_id(self._session_id):
             raise ValueError("Invalid website session")
         cookie = settings["cookie"].strip()

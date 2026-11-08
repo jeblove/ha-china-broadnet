@@ -1,11 +1,12 @@
 """UI setup and reconfiguration for China Broadnet."""
 
 import re
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from time import monotonic
 
 import voluptuous as vol
-from aiohttp import DummyCookieJar
+from aiohttp import CookieJar, DummyCookieJar
 
 from homeassistant.components import webhook
 from homeassistant.config_entries import SOURCE_REAUTH, ConfigFlow
@@ -21,7 +22,15 @@ from homeassistant.helpers.selector import (
     TextSelectorConfig,
     TextSelectorType,
 )
+from homeassistant.setup import async_setup_component
 
+from .captcha import (
+    CAPTCHA_LIFETIME,
+    async_desktop_login,
+    async_desktop_send_sms,
+    async_fetch_captcha,
+    async_publish_captcha,
+)
 from .const import DOMAIN, TRAFFIC_KEYS
 from .portal import (
     PortalAuthError,
@@ -50,18 +59,71 @@ class ChinaBroadnetConfigFlow(ConfigFlow, domain=DOMAIN):
     def __init__(self) -> None:
         """Keep pending login state in this configuration flow only."""
         super().__init__()
-        self._h5_data: dict | None = None
-        self._h5_name = ""
-        self._h5_sms_at = float("-inf")
+        self._login_data: dict | None = None
+        self._login_name = ""
+        self._sms_at = float("-inf")
+        self._desktop_jar: CookieJar | None = None
+        self._image_path = ""
+        self._image_until = 0.0
+        self._image_code = ""
+        self._remove_image = None
 
     async def async_step_user(self, user_input=None):
         """Choose how to supply readings."""
         return self.async_show_menu(
-            step_id="user", menu_options=["h5_start", "portal", "manual", "sms"]
+            step_id="user",
+            menu_options=["h5_start", "desktop_start", "portal", "manual", "sms"],
         )
 
     async def async_step_h5_start(self, user_input=None):
         """Send a login SMS only after the user submits the phone form."""
+        return await self._async_login_start("h5_start", user_input)
+
+    async def async_step_desktop_start(self, user_input=None):
+        """Offer a desktop login only if the carrier returns a CAPTCHA image."""
+        if not self._image_path or monotonic() >= self._image_until:
+            self._desktop_jar = CookieJar()
+            try:
+                async with self._async_desktop_http() as http:
+                    mime, image = await async_fetch_captcha(http)
+            except PortalChallengeError:
+                error = "captcha_challenge"
+            except PortalError:
+                error = "cannot_connect"
+            else:
+                if await async_setup_component(self.hass, webhook.DOMAIN, {}):
+                    error = None
+                    self._image_path, self._remove_image = async_publish_captcha(
+                        self.hass, mime, image
+                    )
+                    self._image_until = monotonic() + CAPTCHA_LIFETIME
+                    user_input = None
+                else:
+                    error = "cannot_connect"
+            if error:
+                return self.async_show_form(
+                    step_id="desktop_retry",
+                    data_schema=vol.Schema({}),
+                    errors={"base": error},
+                )
+        return await self._async_login_start("desktop_start", user_input)
+
+    async def async_step_desktop_retry(self, _user_input=None):
+        """Retry fetching the image without sending a login SMS."""
+        return await self.async_step_desktop_start()
+
+    @asynccontextmanager
+    async def _async_desktop_http(self):
+        http = async_create_clientsession(
+            self.hass, auto_cleanup=False, cookie_jar=self._desktop_jar
+        )
+        try:
+            yield http
+        finally:
+            http.detach()
+
+    async def _async_login_start(self, step_id, user_input):
+        desktop = step_id == "desktop_start"
         entry = self._get_reauth_entry() if self.source == SOURCE_REAUTH else None
         fields = {}
         if not entry:
@@ -73,6 +135,8 @@ class ChinaBroadnetConfigFlow(ConfigFlow, domain=DOMAIN):
                 vol.Optional("package", default=""): TextSelector(),
             }
         fields[vol.Required("consent", default=False)] = bool
+        if desktop:
+            fields[vol.Required("image_code")] = TextSelector()
         errors = {}
         if user_input is not None:
             account = entry.data["account"] if entry else user_input["account"].strip()
@@ -80,6 +144,10 @@ class ChinaBroadnetConfigFlow(ConfigFlow, domain=DOMAIN):
                 errors["account"] = "invalid_phone"
             elif not user_input["consent"]:
                 errors["consent"] = "login_consent"
+            elif desktop and not re.fullmatch(
+                r"[A-Za-z0-9]{4,8}", user_input["image_code"].strip()
+            ):
+                errors["image_code"] = "invalid_image_code"
             else:
                 package = (
                     entry.data.get("package", "")
@@ -100,27 +168,38 @@ class ChinaBroadnetConfigFlow(ConfigFlow, domain=DOMAIN):
                     if not entry:
                         await self.async_set_unique_id(name.casefold())
                         self._abort_if_unique_id_configured()
-                    error = await self._async_send_h5_sms(account)
+                    error = await self._async_send_login_sms(account, desktop)
                     if error is None:
-                        self._h5_name = name
-                        self._h5_data = {
+                        self._login_name = name
+                        self._login_data = {
                             "source": "portal",
-                            "portal_mode": "h5",
+                            "portal_mode": "desktop" if desktop else "h5",
                             "account": account,
                             "package": package,
                         }
+                        if desktop:
+                            self._image_code = user_input["image_code"].strip()
+                            if self._remove_image:
+                                self._remove_image()
                         return await self.async_step_h5_code()
                     errors["base"] = error
         return self.async_show_form(
-            step_id="h5_start", data_schema=vol.Schema(fields), errors=errors
+            step_id=step_id,
+            data_schema=vol.Schema(fields),
+            errors=errors,
+            description_placeholders={"image": self._image_path} if desktop else None,
         )
 
-    async def _async_send_h5_sms(self, account):
-        if monotonic() - self._h5_sms_at < 60:
+    async def _async_send_login_sms(self, account, desktop):
+        if monotonic() - self._sms_at < 60:
             return "sms_cooldown"
-        self._h5_sms_at = monotonic()
+        self._sms_at = monotonic()
         try:
-            await async_h5_send_sms(async_get_clientsession(self.hass), account)
+            if desktop:
+                async with self._async_desktop_http() as http:
+                    await async_desktop_send_sms(http, account)
+            else:
+                await async_h5_send_sms(async_get_clientsession(self.hass), account)
         except PortalCodeError:
             return "sms_rejected"
         except PortalChallengeError:
@@ -131,14 +210,17 @@ class ChinaBroadnetConfigFlow(ConfigFlow, domain=DOMAIN):
 
     async def async_step_h5_code(self, user_input=None):
         """Verify the login code and check an authenticated balance."""
-        if self._h5_data is None:
+        if self._login_data is None:
             return await self.async_step_h5_start()
-        settings = self._h5_data
+        settings = self._login_data
+        desktop = settings["portal_mode"] == "desktop"
         errors = {}
         if user_input is not None:
             code = user_input.get("code", "").strip()
             if user_input.get("resend") and "session" not in settings:
-                if error := await self._async_send_h5_sms(settings["account"]):
+                if error := await self._async_send_login_sms(
+                    settings["account"], desktop
+                ):
                     errors["base"] = error
             elif "session" not in settings and not re.fullmatch(r"[0-9]{4,8}", code):
                 errors["code"] = "invalid_sms_code"
@@ -146,12 +228,29 @@ class ChinaBroadnetConfigFlow(ConfigFlow, domain=DOMAIN):
                 http = async_get_clientsession(self.hass)
                 try:
                     if "session" not in settings:
-                        settings["session"] = await async_h5_login(
-                            http, settings["account"], code
-                        )
-                    await PortalClient(http, settings).async_balance()
+                        if desktop:
+                            async with self._async_desktop_http() as desktop_http:
+                                settings.update(
+                                    await async_desktop_login(
+                                        desktop_http,
+                                        settings["account"],
+                                        code,
+                                        self._image_code,
+                                    )
+                                )
+                        else:
+                            settings["session"] = await async_h5_login(
+                                http, settings["account"], code
+                            )
+                    client = PortalClient(http, settings)
+                    await client.async_balance()
+                    if client.cookie is not None:
+                        settings["cookie"] = client.cookie
                 except PortalCodeError:
-                    errors["code"] = "invalid_sms_code"
+                    if desktop:
+                        errors["base"] = "invalid_desktop_codes"
+                    else:
+                        errors["code"] = "invalid_sms_code"
                 except PortalAuthError:
                     settings.pop("session", None)
                     errors["base"] = "portal_auth_failed"
@@ -164,7 +263,7 @@ class ChinaBroadnetConfigFlow(ConfigFlow, domain=DOMAIN):
                         return self.async_update_reload_and_abort(
                             self._get_reauth_entry(), data_updates=settings
                         )
-                    return await self._async_create(self._h5_name, settings)
+                    return await self._async_create(self._login_name, settings)
         fields = {}
         if "session" not in settings:
             fields = {
@@ -183,7 +282,10 @@ class ChinaBroadnetConfigFlow(ConfigFlow, domain=DOMAIN):
 
     async def async_step_reauth(self, _entry_data):
         """Start replacement of an expired website session."""
-        if self._get_reauth_entry().data.get("portal_mode") == "h5":
+        mode = self._get_reauth_entry().data.get("portal_mode")
+        if mode == "desktop":
+            return await self.async_step_desktop_start()
+        if mode == "h5":
             return await self.async_step_h5_start()
         return await self.async_step_reauth_confirm()
 
@@ -262,7 +364,7 @@ class ChinaBroadnetConfigFlow(ConfigFlow, domain=DOMAIN):
         entry = self._get_reconfigure_entry()
         source = entry.data["source"]
         if source == "portal":
-            if entry.data.get("portal_mode") == "h5":
+            if entry.data.get("portal_mode") in ("h5", "desktop"):
                 return await self.async_step_h5_update(user_input)
             return await self.async_step_portal_update(user_input)
         if source == "manual":
