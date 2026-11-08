@@ -1,0 +1,88 @@
+{
+  "title": "中国广电",
+  "config": {
+    "step": {
+      "user": {
+        "title": "选择数据源",
+        "menu_options": {
+          "manual": "录入营业厅实查值",
+          "sms": "接收转发短信（实验性）"
+        }
+      },
+      "manual": {
+        "title": "录入营业厅实查值",
+        "description": "录入本人账户当前实查值，未知项留空。流量使用十进制 GB，只填本月套餐通用流量。",
+        "data": {
+          "name": "账户别名",
+          "balance": "话费余额（元）",
+          "data_total": "本月套餐通用流量总量（GB）",
+          "data_used": "本月套餐通用流量已用（GB）",
+          "data_remaining": "本月套餐通用流量剩余（GB）"
+        }
+      },
+      "manual_update": {
+        "title": "更新实查值",
+        "description": "填写余额会替换旧余额。填写任意流量项会替换整组流量，留空的流量项将不可用。",
+        "data": {
+          "balance": "话费余额（元）",
+          "data_total": "本月套餐通用流量总量（GB）",
+          "data_used": "本月套餐通用流量已用（GB）",
+          "data_remaining": "本月套餐通用流量剩余（GB）"
+        }
+      },
+      "sms": {
+        "title": "设置短信转发",
+        "description": "请根据已核实的真实短信填写至少一个完整模板。添加后在“重新配置”中查看私密 Webhook 路径。",
+        "data": {
+          "name": "账户别名",
+          "sender": "短信发送人（精确匹配）",
+          "balance_template": "话费余额短信模板",
+          "traffic_template": "套餐通用流量短信模板",
+          "unit_base": "B/KB/MB/GB 输入的换算进制"
+        }
+      },
+      "sms_update": {
+        "title": "配置短信转发",
+        "description": "将私密路径 `{path}` 接在 Home Assistant 局域网地址后，请妥善保管。修改发送人、模板或进制会清除当前读数。",
+        "data": {
+          "sender": "短信发送人（精确匹配）",
+          "balance_template": "话费余额短信模板",
+          "traffic_template": "套餐通用流量短信模板",
+          "unit_base": "B/KB/MB/GB 输入的换算进制",
+          "rotate": "生成新的 Webhook 路径"
+        }
+      }
+    },
+    "error": {
+      "invalid_amount": "请输入有效的十进制数值。",
+      "missing_values": "请至少录入一项读数。",
+      "invalid_sender": "请输入不超过 64 个字符的完整发送人。",
+      "invalid_template": "请使用完整模板和文档中规定的占位符。",
+      "missing_template": "请至少填写一个短信模板。"
+    },
+    "abort": {
+      "already_configured": "此账户别名已配置。",
+      "invalid_name": "请使用 1 至 64 个字符的账户别名。",
+      "reconfigure_successful": "中国广电配置已更新。"
+    }
+  },
+  "entity": {
+    "sensor": {
+      "balance": {
+        "name": "话费余额"
+      },
+      "data_total": {
+        "name": "本月套餐通用流量总量"
+      },
+      "data_used": {
+        "name": "本月套餐通用流量已用"
+      },
+      "data_remaining": {
+        "name": "本月套餐通用流量剩余"
+      },
+      "last_updated": {
+        "name": "最近成功更新时间"
+      }
+    }
+  }
+}
