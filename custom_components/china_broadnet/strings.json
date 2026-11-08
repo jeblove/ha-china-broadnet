@@ -1,0 +1,125 @@
+{
+  "title": "China Broadnet",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Choose a data source",
+        "menu_options": {
+          "manual": "Enter official hall readings",
+          "sms": "Receive forwarded SMS (experimental)",
+          "portal": "Official website session (experimental)"
+        }
+      },
+      "manual": {
+        "title": "Enter official hall readings",
+        "description": "Enter current readings from your account or leave them blank. Use decimal GB. Only enter general data from the monthly plan.",
+        "data": {
+          "name": "Account alias",
+          "balance": "Account balance (CNY)",
+          "data_total": "Monthly plan general data total (GB)",
+          "data_used": "Monthly plan general data used (GB)",
+          "data_remaining": "Monthly plan general data remaining (GB)"
+        }
+      },
+      "manual_update": {
+        "title": "Record a new reading",
+        "description": "A new balance replaces the old balance. If you enter any traffic field, the traffic group is replaced and blank traffic fields become unavailable.",
+        "data": {
+          "balance": "Account balance (CNY)",
+          "data_total": "Monthly plan general data total (GB)",
+          "data_used": "Monthly plan general data used (GB)",
+          "data_remaining": "Monthly plan general data remaining (GB)"
+        }
+      },
+      "sms": {
+        "title": "Set up SMS forwarding",
+        "description": "Enter at least one complete template based on a verified message. Find the secret webhook path under Reconfigure after setup.",
+        "data": {
+          "name": "Account alias",
+          "sender": "Exact SMS sender",
+          "balance_template": "Balance message template",
+          "traffic_template": "General data message template",
+          "unit_base": "Base for B/KB/MB/GB input"
+        }
+      },
+      "sms_update": {
+        "title": "Configure SMS forwarding",
+        "description": "Append this secret path to your local Home Assistant URL: `{path}`. Keep it private. A change to the sender, templates or unit base clears the current readings.",
+        "data": {
+          "sender": "Exact SMS sender",
+          "balance_template": "Balance message template",
+          "traffic_template": "General data message template",
+          "unit_base": "Base for B/KB/MB/GB input",
+          "rotate": "Generate a new webhook path"
+        }
+      },
+      "portal": {
+        "title": "Connect the official website session",
+        "description": "Import credentials from your signed-in account tab. Leave the package name blank for balance only. See the integration documentation for instructions.",
+        "data": {
+          "name": "Account alias",
+          "session": "Exported website tab session",
+          "cookie": "Cookie request header",
+          "user_agent": "User-Agent request header",
+          "package": "Exact monthly general package name (optional)"
+        }
+      },
+      "portal_update": {
+        "title": "Update the website settings",
+        "description": "Import credentials from your signed-in account tab. Leave the package name blank for balance only. See the integration documentation for instructions.",
+        "data": {
+          "session": "Exported website tab session",
+          "cookie": "Cookie request header",
+          "user_agent": "User-Agent request header",
+          "package": "Exact monthly general package name (optional)"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Renew the website session",
+        "description": "Import credentials from your signed-in account tab. Leave the package name blank for balance only. See the integration documentation for instructions.",
+        "data": {
+          "session": "Exported website tab session",
+          "cookie": "Cookie request header",
+          "user_agent": "User-Agent request header",
+          "package": "Exact monthly general package name (optional)"
+        }
+      }
+    },
+    "error": {
+      "invalid_amount": "Enter a valid decimal amount.",
+      "missing_values": "Enter at least one reading.",
+      "invalid_sender": "Enter an exact sender of up to 64 characters.",
+      "invalid_template": "Use a complete template and the documented placeholders.",
+      "missing_template": "Enter at least one template.",
+      "invalid_portal_session": "Check the exported session and request headers.",
+      "portal_auth_failed": "The carrier rejected the session. Refresh the website credentials.",
+      "cannot_connect": "The carrier query failed. Try again later."
+    },
+    "abort": {
+      "already_configured": "This account alias is already configured.",
+      "invalid_name": "Use an account alias of 1–64 characters.",
+      "reconfigure_successful": "China Broadnet was updated.",
+      "wrong_account": "Use a session for the same account.",
+      "reauth_successful": "The website session was updated."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "balance": {
+        "name": "Account balance"
+      },
+      "data_total": {
+        "name": "Monthly plan general data total"
+      },
+      "data_used": {
+        "name": "Monthly plan general data used"
+      },
+      "data_remaining": {
+        "name": "Monthly plan general data remaining"
+      },
+      "last_updated": {
+        "name": "Last successful update"
+      }
+    }
+  }
+}
