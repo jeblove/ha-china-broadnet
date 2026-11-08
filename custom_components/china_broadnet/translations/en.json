@@ -59,9 +59,8 @@
         "data": {
           "name": "Account alias",
           "session": "Exported website tab session",
-          "cookie": "Cookie request header",
-          "user_agent": "User-Agent request header",
-          "package": "Exact monthly general package name (optional)"
+          "package": "Exact monthly general package name (optional)",
+          "curl": "Paste the balance request as cURL (bash)"
         }
       },
       "portal_update": {
@@ -69,9 +68,8 @@
         "description": "Import credentials from your signed-in account tab. Leave the package name blank for balance only. See the integration documentation for instructions.",
         "data": {
           "session": "Exported website tab session",
-          "cookie": "Cookie request header",
-          "user_agent": "User-Agent request header",
-          "package": "Exact monthly general package name (optional)"
+          "package": "Exact monthly general package name (optional)",
+          "curl": "Paste the balance request as cURL (bash)"
         }
       },
       "reauth_confirm": {
@@ -79,9 +77,8 @@
         "description": "Import credentials from your signed-in account tab. Leave the package name blank for balance only. See the integration documentation for instructions.",
         "data": {
           "session": "Exported website tab session",
-          "cookie": "Cookie request header",
-          "user_agent": "User-Agent request header",
-          "package": "Exact monthly general package name (optional)"
+          "package": "Exact monthly general package name (optional)",
+          "curl": "Paste the balance request as cURL (bash)"
         }
       }
     },
@@ -93,7 +90,9 @@
       "missing_template": "Enter at least one template.",
       "invalid_portal_session": "Check the exported session and request headers.",
       "portal_auth_failed": "The carrier rejected the session. Refresh the website credentials.",
-      "cannot_connect": "The carrier query failed. Try again later."
+      "cannot_connect": "The carrier query failed. Try again later.",
+      "invalid_portal_curl": "Use Copy as cURL (bash) on the qryBalanceFee request in the Network panel.",
+      "portal_challenge": "The carrier returned a browser verification page. Copy a fresh successful balance request from the signed-in tab."
     },
     "abort": {
       "already_configured": "This account alias is already configured.",

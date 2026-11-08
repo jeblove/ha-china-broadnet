@@ -215,8 +215,9 @@ async def test_portal_setup_refresh_and_reauth(hass, aioclient_mock, freezer):
                     "broadnetUserSessionId": protect({"id": session_id}),
                 }
             ),
-            "cookie": "example=authorized",
-            "user_agent": "Example browser",
+            "curl": (
+                f"curl '{url}' -b 'example=authorized' -H 'user-agent: Example browser'"
+            ),
         }
 
     url = f"{ORIGIN}/contact-web/api/busi/qryBalanceFee"
@@ -225,9 +226,19 @@ async def test_portal_setup_refresh_and_reauth(hass, aioclient_mock, freezer):
         "ok": True,
         "data": {"intfResultBean": {"balance": "1201", "spayFee": "0"}},
     }
-    aioclient_mock.post(url, json=success, headers={"content-type": "application/json"})
     form = await start_flow(hass, "portal")
-    result = await submit(hass, form, {"name": "Portal", **settings()})
+    data = {"name": "Portal", **settings()}
+    invalid = await submit(hass, form, {**data, "curl": "invalid"})
+    assert invalid["errors"] == {"curl": "invalid_portal_curl"}
+    assert aioclient_mock.call_count == 0
+    aioclient_mock.post(
+        url, text="<html>Challenge</html>", headers={"content-type": "text/html"}
+    )
+    blocked = await submit(hass, form, data)
+    assert blocked["errors"] == {"base": "portal_challenge"}
+    aioclient_mock.clear_requests()
+    aioclient_mock.post(url, json=success, headers={"content-type": "application/json"})
+    result = await submit(hass, form, data)
     assert result["type"] is FlowResultType.CREATE_ENTRY, result.get("errors")
     entry = result["result"]
     assert state(hass, entry, "balance") == "12.01"
@@ -261,4 +272,7 @@ async def test_portal_setup_refresh_and_reauth(hass, aioclient_mock, freezer):
     result = await submit(hass, flow, renewed)
     assert result["reason"] == "reauth_successful"
     assert entry.data["session"] == renewed["session"]
+    assert entry.data["cookie"] == "example=authorized"
+    assert entry.data["user_agent"] == "Example browser"
+    assert "curl" not in entry.data
     assert state(hass, entry, "balance") == "12.01"

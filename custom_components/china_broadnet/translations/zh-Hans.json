@@ -59,9 +59,8 @@
         "data": {
           "name": "账户别名",
           "session": "导出的网页标签页会话",
-          "cookie": "Cookie 请求头",
-          "user_agent": "User-Agent 请求头",
-          "package": "本月套餐通用流量包完整名称（可选）"
+          "package": "本月套餐通用流量包完整名称（可选）",
+          "curl": "粘贴余额请求的 cURL (bash)"
         }
       },
       "portal_update": {
@@ -69,9 +68,8 @@
         "description": "请从已登录的本人账户标签页导入凭据。包名留空时只查余额。具体步骤见项目文档。",
         "data": {
           "session": "导出的网页标签页会话",
-          "cookie": "Cookie 请求头",
-          "user_agent": "User-Agent 请求头",
-          "package": "本月套餐通用流量包完整名称（可选）"
+          "package": "本月套餐通用流量包完整名称（可选）",
+          "curl": "粘贴余额请求的 cURL (bash)"
         }
       },
       "reauth_confirm": {
@@ -79,9 +77,8 @@
         "description": "请从已登录的本人账户标签页导入凭据。包名留空时只查余额。具体步骤见项目文档。",
         "data": {
           "session": "导出的网页标签页会话",
-          "cookie": "Cookie 请求头",
-          "user_agent": "User-Agent 请求头",
-          "package": "本月套餐通用流量包完整名称（可选）"
+          "package": "本月套餐通用流量包完整名称（可选）",
+          "curl": "粘贴余额请求的 cURL (bash)"
         }
       }
     },
@@ -93,7 +90,9 @@
       "missing_template": "请至少填写一个短信模板。",
       "invalid_portal_session": "请检查导出的网页会话和请求头。",
       "portal_auth_failed": "广电拒绝了该会话，请更新网页凭据。",
-      "cannot_connect": "广电查询失败，请稍后再试。"
+      "cannot_connect": "广电查询失败，请稍后再试。",
+      "invalid_portal_curl": "请使用网络面板中的「复制为 cURL (bash)」，并确认复制的是 qryBalanceFee 请求。",
+      "portal_challenge": "广电返回了网页验证页。请从同一已登录标签页重新复制成功的余额请求。"
     },
     "abort": {
       "already_configured": "此账户别名已配置。",

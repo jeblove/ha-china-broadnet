@@ -4,6 +4,7 @@ import base64
 import hashlib
 import json
 import re
+import shlex
 from datetime import UTC, datetime
 from urllib.parse import quote
 
@@ -44,6 +45,67 @@ class PortalError(Exception):
 
 class PortalAuthError(PortalError):
     """The website session or its cookies need to be refreshed."""
+
+
+class PortalChallengeError(PortalAuthError):
+    """The request reached the website's browser verification page."""
+
+
+class PortalCurlError(ValueError):
+    """The browser's copied request cannot supply the required headers."""
+
+
+def parse_portal_curl(command: str) -> dict[str, str]:
+    """Extract headers from browser-exported cURL without running it."""
+    error = "Expected a copied balance request with Cookie and User-Agent"
+    if len(command) > 32_768:
+        raise PortalCurlError(error)
+    try:
+        parts = shlex.split(re.sub(r"\\\r?\n", "", command))
+    except ValueError:
+        raise PortalCurlError(error) from None
+    if not parts or parts.pop(0) != "curl":
+        raise PortalCurlError(error)
+
+    url = f"{ORIGIN}/contact-web/api/busi/qryBalanceFee"
+    found_url = False
+    headers = {}
+    arguments = iter(parts)
+    for part in arguments:
+        if part == url and not found_url:
+            found_url = True
+            continue
+        if part in ("--compressed", "--globoff", "--path-as-is"):
+            continue
+        value = next(arguments, None)
+        if value is None:
+            raise PortalCurlError(error)
+        if part in ("-H", "--header"):
+            name, _, value = value.partition(":")
+            name = name.strip().lower()
+            if name not in ("cookie", "user-agent"):
+                continue
+        elif part in ("-b", "--cookie"):
+            name = "cookie"
+        elif part in ("-A", "--user-agent"):
+            name = "user-agent"
+        elif part in ("-d", "--data", "--data-raw", "--data-binary"):
+            continue
+        elif part in ("-X", "--request") and value == "POST":
+            continue
+        else:
+            raise PortalCurlError(error)
+        if name in headers:
+            raise PortalCurlError(error)
+        headers[name] = value.strip()
+    if (
+        not found_url
+        or not re.fullmatch(r"[ -~]{1,8192}", headers.get("cookie", ""))
+        or "=" not in headers["cookie"]
+        or not re.fullmatch(r"[ -~]{1,1024}", headers.get("user-agent", ""))
+    ):
+        raise PortalCurlError(error)
+    return {"cookie": headers["cookie"], "user_agent": headers["user-agent"]}
 
 
 def _storage_value(value: str, field: str) -> str:
@@ -179,10 +241,9 @@ class PortalClient:
                 timeout=TIMEOUT,
                 allow_redirects=False,
             ) as response:
-                if (
-                    response.status in (401, 403)
-                    or response.content_type == "text/html"
-                ):
+                if response.content_type == "text/html":
+                    raise PortalChallengeError("Website returned a verification page")
+                if response.status in (401, 403):
                     raise PortalAuthError("Website session rejected")
                 if (
                     response.status != 200

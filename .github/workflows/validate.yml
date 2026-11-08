@@ -59,9 +59,12 @@ jobs:
           curl --fail --silent --show-error --location \
             https://codeload.github.com/home-assistant/core/tar.gz/refs/tags/2026.10.2 \
             | tar -xz --strip-components=1 -C "$core"
+          # These optional audio processors require a C++ compiler and are unused by Hassfest.
+          grep -vE '^(pymicro-vad|pyspeex-noise)==' "$core/requirements.txt" \
+            > "$core/hassfest-requirements.txt"
           uv venv "$core/.venv"
           uv pip install --python "$core/.venv/bin/python" \
-            -r "$core/requirements.txt" \
+            -r "$core/hassfest-requirements.txt" \
             -c "$core/homeassistant/package_constraints.txt" \
             $(grep -E '^(pipdeptree|tqdm)==' "$core/requirements_test.txt") \
             $(grep -E '^ruff==' "$core/requirements_test_pre_commit.txt")

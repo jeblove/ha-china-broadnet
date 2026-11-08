@@ -4,7 +4,12 @@ from datetime import UTC, datetime
 
 import pytest
 
-from custom_components.china_broadnet.portal import _traffic
+from custom_components.china_broadnet.portal import (
+    ORIGIN,
+    PortalCurlError,
+    _traffic,
+    parse_portal_curl,
+)
 
 NOW = datetime(2026, 11, 9, tzinfo=UTC)
 PLAN = {
@@ -41,3 +46,37 @@ def test_select_confirmed_monthly_general_package():
 )
 def test_skip_ambiguous_or_invalid_resource(rows):
     assert _traffic(rows, PLAN["discntName"], NOW) == {}
+
+
+BALANCE_URL = f"{ORIGIN}/contact-web/api/busi/qryBalanceFee"
+
+
+def test_import_browser_curl():
+    command = " \\\r\n".join(
+        (
+            f"curl '{BALANCE_URL}'",
+            "-H 'accept: application/json'",
+            "-b 'example=authorized; other=one'",
+            "-H 'User-Agent: Example Browser/1.0'",
+            '--data-raw \'{"data":"example"}\'',
+            "--compressed",
+        )
+    )
+    assert parse_portal_curl(command) == {
+        "cookie": "example=authorized; other=one",
+        "user_agent": "Example Browser/1.0",
+    }
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "curl 'https://example.test' -b 'a=b' -A 'Agent'",
+        f"curl '{BALANCE_URL}' -A 'Agent'",
+        f"curl '{BALANCE_URL}' -b 'a=b' -b 'a=c' -A 'Agent'",
+        f"curl '{BALANCE_URL}' -b 'a=b' -A 'Agent' ; echo unexpected",
+    ],
+)
+def test_reject_invalid_curl(command):
+    with pytest.raises(PortalCurlError, match="Expected a copied balance request"):
+        parse_portal_curl(command)

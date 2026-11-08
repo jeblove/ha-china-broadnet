@@ -18,7 +18,14 @@ from homeassistant.helpers.selector import (
 )
 
 from .const import DOMAIN, TRAFFIC_KEYS
-from .portal import PortalAuthError, PortalClient, PortalError
+from .portal import (
+    PortalAuthError,
+    PortalChallengeError,
+    PortalClient,
+    PortalCurlError,
+    PortalError,
+    parse_portal_curl,
+)
 from .sms import compile_template
 from .usage import amount, group_for, make_report
 
@@ -61,29 +68,33 @@ class ChinaBroadnetConfigFlow(ConfigFlow, domain=DOMAIN):
             entry = self._get_reconfigure_entry()
         package = entry.data.get("package", "") if entry else ""
         fields = {} if entry else {vol.Required("name"): TextSelector()}
-        for key in ("session", "cookie"):
-            fields[vol.Required(key)] = TextSelector(
-                TextSelectorConfig(type=TextSelectorType.PASSWORD)
-            )
-        fields[vol.Required("user_agent")] = TextSelector()
+        fields[vol.Required("session")] = TextSelector(
+            TextSelectorConfig(type=TextSelectorType.PASSWORD)
+        )
+        fields[vol.Required("curl")] = TextSelector(TextSelectorConfig(multiline=True))
         fields[vol.Optional("package", default=package)] = TextSelector()
         errors = {}
         if user_input is not None:
             settings = {
                 key: user_input[key]
-                for key in ("session", "cookie", "user_agent", "package")
+                for key in ("session", "package")
                 if key in user_input
             }
             http = async_create_clientsession(
                 self.hass, auto_cleanup=False, cookie_jar=DummyCookieJar()
             )
             try:
+                settings.update(parse_portal_curl(user_input["curl"]))
                 client = PortalClient(http, settings)
                 if entry and client.account != PortalClient(http, entry.data).account:
                     return self.async_abort(reason="wrong_account")
                 await client.async_balance()
+            except PortalCurlError:
+                errors["curl"] = "invalid_portal_curl"
             except ValueError, TypeError, RecursionError, KeyError:
                 errors["base"] = "invalid_portal_session"
+            except PortalChallengeError:
+                errors["base"] = "portal_challenge"
             except PortalAuthError:
                 errors["base"] = "portal_auth_failed"
             except PortalError:
