@@ -29,7 +29,9 @@ class ChinaBroadnetConfigFlow(ConfigFlow, domain=DOMAIN):
 
     async def async_step_user(self, user_input=None):
         """Choose how to supply readings."""
-        return self.async_show_menu(step_id="user", menu_options=["manual", "sms"])
+        return self.async_show_menu(
+            step_id="user", menu_options=["manual", "sms", "browser"]
+        )
 
     async def async_step_manual(self, user_input=None):
         """Set up manual observations from the official hall."""
@@ -41,7 +43,10 @@ class ChinaBroadnetConfigFlow(ConfigFlow, domain=DOMAIN):
 
     async def async_step_reconfigure(self, user_input=None):
         """Update a reading or edit SMS settings."""
-        if self._get_reconfigure_entry().data["source"] == "manual":
+        source = self._get_reconfigure_entry().data["source"]
+        if source == "browser":
+            return await self.async_step_browser_update(user_input)
+        if source == "manual":
             return await self._async_manual("manual_update", user_input)
         return await self._async_sms("sms_update", user_input)
 
@@ -52,6 +57,39 @@ class ChinaBroadnetConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_sms_update(self, user_input=None):
         """Update templates or rotate the webhook secret."""
         return await self._async_sms("sms_update", user_input)
+
+    async def async_step_browser(self, user_input=None):
+        """Create a receiver for the browser companion."""
+        if user_input is not None:
+            return await self._async_create(
+                user_input["name"],
+                {
+                    "source": "browser",
+                    "webhook_id": webhook.async_generate_id(),
+                    "reports": {},
+                },
+            )
+        return self.async_show_form(
+            step_id="browser",
+            data_schema=vol.Schema({vol.Required("name"): TextSelector()}),
+        )
+
+    async def async_step_browser_update(self, user_input=None):
+        """Show or rotate the private browser receiver URL."""
+        entry = self._get_reconfigure_entry()
+        if user_input is not None:
+            if not user_input.get("rotate"):
+                return self.async_abort(reason="reconfigure_successful")
+            return self.async_update_reload_and_abort(
+                entry, data_updates={"webhook_id": webhook.async_generate_id()}
+            )
+        return self.async_show_form(
+            step_id="browser_update",
+            data_schema=vol.Schema({vol.Optional("rotate", default=False): bool}),
+            description_placeholders={
+                "path": webhook.async_generate_path(entry.data["webhook_id"])
+            },
+        )
 
     async def _async_manual(self, step_id, user_input):
         updating = step_id == "manual_update"

@@ -11,12 +11,12 @@ PLATFORMS = [Platform.SENSOR]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up sensors and, for SMS entries, the local webhook."""
+    """Set up sensors and, for push entries, the local webhook."""
     coordinator = UsageCoordinator(hass, entry)
     await coordinator.async_config_entry_first_refresh()
     entry.runtime_data = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    if entry.data["source"] == "sms":
+    if entry.data["source"] in {"sms", "browser"}:
         async_register_receiver(hass, entry)
     return True
 

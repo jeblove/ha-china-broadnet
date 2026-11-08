@@ -6,7 +6,8 @@
         "title": "选择数据源",
         "menu_options": {
           "manual": "录入营业厅实查值",
-          "sms": "接收转发短信（实验性）"
+          "sms": "接收转发短信（实验性）",
+          "browser": "通过浏览器查询网上营业厅（实验性）"
         }
       },
       "manual": {
@@ -49,6 +50,20 @@
           "balance_template": "话费余额短信模板",
           "traffic_template": "套餐通用流量短信模板",
           "unit_base": "B/KB/MB/GB 输入的换算进制",
+          "rotate": "生成新的 Webhook 路径"
+        }
+      },
+      "browser": {
+        "title": "连接浏览器助手",
+        "description": "在可信电脑运行浏览器助手。添加后可在「重新配置」中查看私密 Webhook 路径。",
+        "data": {
+          "name": "账户别名"
+        }
+      },
+      "browser_update": {
+        "title": "浏览器助手 Webhook",
+        "description": "将私密路径 `{path}` 接在 Home Assistant 局域网地址后。",
+        "data": {
           "rotate": "生成新的 Webhook 路径"
         }
       }

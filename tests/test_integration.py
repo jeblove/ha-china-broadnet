@@ -168,3 +168,38 @@ async def test_sms_push_rotate_and_expiry(
     assert await hass.config_entries.async_unload(entry.entry_id)
     await send(saved_path, "示例余额：4元")
     assert entry.data["reports"]["balance"]["values"]["balance"] == 3
+
+
+async def test_browser_snapshot_webhook(hass: HomeAssistant, hass_client, freezer):
+    freezer.move_to(datetime(2026, 10, 8, tzinfo=UTC))
+    form = await start_flow(hass, "browser")
+    entry = (await submit(hass, form, {"name": "Web"}))["result"]
+    client = await hass_client()
+    path = f"/api/webhook/{entry.data['webhook_id']}"
+    flow = await reconfigure(hass, entry)
+    assert flow["description_placeholders"]["path"] == path
+
+    def snapshot(balance, traffic):
+        return {
+            "observed": str(int(dt_util.utcnow().timestamp() * 1000)),
+            "balance": balance,
+            "traffic": traffic,
+        }
+
+    traffic = {"data_total": "2", "data_used": "1.5", "data_remaining": "0.5"}
+    assert (await client.post(path, json=snapshot("0", traffic))).status == 204
+    assert state(hass, entry, "balance") == "0.0"
+    assert state(hass, entry, "data_remaining") == "0.5"
+    assert (await client.post(path, json=snapshot("3", {}))).status == 204
+    assert state(hass, entry, "balance") == "0.0"
+
+    freezer.tick(timedelta(minutes=1))
+    assert (await client.post(path, json=snapshot("invalid", {}))).status == 400
+    assert state(hass, entry, "data_remaining") == "0.5"
+    assert (await client.post(path, json=snapshot("-2", {}))).status == 204
+    assert state(hass, entry, "balance") == "-2.0"
+    assert state(hass, entry, "data_remaining") == STATE_UNAVAILABLE
+    freezer.tick(timedelta(minutes=91))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    assert state(hass, entry, "balance") == STATE_UNAVAILABLE
