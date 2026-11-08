@@ -49,15 +49,13 @@ def test_invalid_templates(template):
 
 def test_sms_uses_only_explicitly_mapped_package():
     pattern = compile_template(
-        "示例月包通用剩余：{data_remaining}；"
-        "定向剩余：2GB；赠送包：3GB（7天有效）",
+        "示例月包通用剩余：{data_remaining}；定向剩余：2GB；赠送包：3GB（7天有效）",
         "traffic",
     )
     form = {
         "from": "10099",
         "content": (
-            "示例月包通用剩余：５００MB；"
-            "定向剩余：2GB；赠送包：3GB（7天有效）"
+            "示例月包通用剩余：５００MB；定向剩余：2GB；赠送包：3GB（7天有效）"
         ),
         "timestamp": str(int(NOW.timestamp() * 1000)),
     }
@@ -102,7 +100,9 @@ def test_groups_expire_independently_and_traffic_resets_at_china_month_boundary(
     traffic = make_report({"data_used": 1.2}, before, before)
     reports = {"balance": balance, "traffic": traffic}
     assert current_values(reports, before) == {
-        "balance": 0, "data_used": 1.2, "last_updated": before
+        "balance": 0,
+        "data_used": 1.2,
+        "last_updated": before,
     }
     assert current_values(reports, boundary) == {"balance": 0, "last_updated": before}
     assert current_values(reports, before + timedelta(hours=48)) == {

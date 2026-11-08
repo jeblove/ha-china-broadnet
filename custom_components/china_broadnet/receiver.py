@@ -14,6 +14,7 @@ from .coordinator import BroadnetEntry
 from .sms import compile_template, parse_sms
 
 MAX_BODY = 24_576
+READ_TIMEOUT = 5
 RECEIVER_SETTINGS = (
     "webhook_id",
     "sender",
@@ -45,17 +46,21 @@ def async_register_receiver(hass: HomeAssistant, entry: BroadnetEntry) -> None:
 
         body = bytearray()
         try:
-            async with asyncio.timeout(5):
+            async with asyncio.timeout(READ_TIMEOUT):
                 async for chunk in request.content.iter_chunked(4096):
                     body.extend(chunk)
                     if len(body) > MAX_BODY:
                         return Response(status=413)
             pairs = parse_qsl(
-                body.decode(), max_num_fields=8, errors="strict", strict_parsing=True
+                body.decode(),
+                keep_blank_values=True,
+                max_num_fields=8,
+                errors="strict",
+                strict_parsing=True,
             )
         except TimeoutError:
             return Response(status=408)
-        except (ValueError, OSError):
+        except ValueError, OSError:
             return Response(status=400)
 
         form = dict(pairs)
@@ -63,7 +68,9 @@ def async_register_receiver(hass: HomeAssistant, entry: BroadnetEntry) -> None:
             return Response(status=400)
         if active and all(entry.data[key] == value for key, value in settings.items()):
             now = datetime.now(UTC)
-            result = parse_sms(form, sender, templates, base, now, entry.data["reports"])
+            result = parse_sms(
+                form, sender, templates, base, now, entry.data["reports"]
+            )
             if result is not None:
                 group, report = result
                 entry.runtime_data.async_accept_report(group, report, now)
@@ -77,7 +84,12 @@ def async_register_receiver(hass: HomeAssistant, entry: BroadnetEntry) -> None:
         webhook.async_unregister(hass, webhook_id)
 
     webhook.async_register(
-        hass, DOMAIN, "China Broadnet", webhook_id, handle,
-        local_only=True, allowed_methods=["POST"],
+        hass,
+        DOMAIN,
+        "China Broadnet",
+        webhook_id,
+        handle,
+        local_only=True,
+        allowed_methods=["POST"],
     )
     entry.async_on_unload(unregister)

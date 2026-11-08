@@ -1,18 +1,18 @@
 """Exercise setup, reconfiguration, webhook and entity lifecycle in Home Assistant."""
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 
+from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
+from custom_components.china_broadnet import receiver
+from custom_components.china_broadnet.const import DOMAIN
 from homeassistant import config_entries
 from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
-
-from pytest_homeassistant_custom_component.common import async_fire_time_changed
-
-from custom_components.china_broadnet.const import DOMAIN
 
 
 async def start_flow(hass, source):
@@ -31,9 +31,21 @@ async def submit(hass, flow, values):
     return result
 
 
+async def reconfigure(hass, entry):
+    return await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={
+            "source": config_entries.SOURCE_RECONFIGURE,
+            "entry_id": entry.entry_id,
+        },
+    )
+
+
 def state(hass, entry, key):
     registry = er.async_get(hass)
-    entity_id = registry.async_get_entity_id("sensor", DOMAIN, f"{entry.entry_id}_{key}")
+    entity_id = registry.async_get_entity_id(
+        "sensor", DOMAIN, f"{entry.entry_id}_{key}"
+    )
     assert entity_id is not None
     return hass.states.get(entity_id).state
 
@@ -55,7 +67,7 @@ async def test_manual_entry_reconfigure_reload_remove(hass: HomeAssistant):
 
     duplicate = await submit(hass, await start_flow(hass, "manual"), {"name": " test "})
     assert duplicate["reason"] == "already_configured"
-    flow = await entry.async_start_reconfigure_flow(hass)
+    flow = await reconfigure(hass, entry)
     assert flow["step_id"] == "manual_update"
     assert (await submit(hass, flow, {}))["errors"] == {"base": "missing_values"}
     result = await submit(hass, flow, {"data_remaining": "8.5"})
@@ -70,7 +82,9 @@ async def test_manual_entry_reconfigure_reload_remove(hass: HomeAssistant):
     assert not hass.config_entries.async_entries(DOMAIN)
 
 
-async def test_sms_push_rotate_and_expiry(hass: HomeAssistant, hass_client, freezer):
+async def test_sms_push_rotate_and_expiry(
+    hass: HomeAssistant, hass_client, freezer, monkeypatch
+):
     freezer.move_to(datetime(2026, 10, 8, tzinfo=UTC))
     form = await start_flow(hass, "sms")
     settings = {
@@ -81,9 +95,10 @@ async def test_sms_push_rotate_and_expiry(hass: HomeAssistant, hass_client, free
             "示例月包：共{data_total}，已用{data_used}，剩余{data_remaining}"
         ),
     }
-    assert (await submit(hass, form, {"name": "Test", **settings, "balance_template": "bad"}))[
-        "errors"
-    ] == {"balance_template": "invalid_template"}
+    invalid = await submit(
+        hass, form, {"name": "Test", **settings, "balance_template": "bad"}
+    )
+    assert invalid["errors"] == {"balance_template": "invalid_template"}
     entry = (await submit(hass, form, {"name": "Test", **settings}))["result"]
     client = await hass_client()
 
@@ -118,7 +133,21 @@ async def test_sms_push_rotate_and_expiry(hass: HomeAssistant, hass_client, free
     assert (await client.post(old_path, json={})).status == 415
     assert (await client.post(old_path, data={"content": "x" * 25_000})).status == 413
 
-    flow = await entry.async_start_reconfigure_flow(hass)
+    async def slow_form():
+        yield b"from=10099&"
+        await asyncio.Event().wait()
+
+    with monkeypatch.context() as patch:
+        patch.setattr(receiver, "READ_TIMEOUT", 0)
+        response = await client.post(
+            old_path,
+            data=slow_form(),
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+        assert response.status == 408
+    assert state(hass, entry, "balance") == "0.0"
+
+    flow = await reconfigure(hass, entry)
     assert flow["description_placeholders"]["path"] == old_path
     result = await submit(hass, flow, {**settings, "rotate": True})
     assert result["reason"] == "reconfigure_successful"

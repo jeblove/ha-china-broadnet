@@ -135,7 +135,9 @@ class ChinaBroadnetConfigFlow(ConfigFlow, domain=DOMAIN):
                         settings["reports"] = {}
                     if user_input.get("rotate"):
                         settings["webhook_id"] = webhook.async_generate_id()
-                    return self.async_update_reload_and_abort(entry, data_updates=settings)
+                    return self.async_update_reload_and_abort(
+                        entry, data_updates=settings
+                    )
                 return await self._async_create(
                     user_input["name"],
                     {

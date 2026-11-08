@@ -4,8 +4,21 @@
 
 - 福建广电客服明确列出中国广电官网、微信/支付宝「中国广电营业厅」小程序和 10099 自助渠道，可查话费余额和套餐余量。[福州广电客服问答](https://www.fjgdwl.com/fuzhou/kfzx/khbz/index_8.shtml)
 - 匿名访问全国官网时只观察到客户端挑战响应。可公开访问的移动营业厅产品页展示了套餐规则，例如某套餐通用流量在满足条件时可结转，变更或停机可能影响结转。产品详情与登录后个人用量属于不同数据。[全国官网](https://www.10099.com.cn/) · [移动营业厅套餐页](https://m.10099.com.cn/h5wap/busiClient/account/d100/)
-- 已查资料未提供可复现的广电登录请求、短信验证码流程、余额/流量响应契约、会话寿命或失效信号。其他运营商的参考项目所列已支持运营商也不包含中国广电。当前交付通过用户自行登录官方入口核对读数。[ha_china_comm](https://github.com/sfairy/ha_china_comm) · [carrier-usage-skill](https://github.com/weieast1314/carrier-usage-skill)
+- 未找到运营商向第三方开放的认证或查询契约。参考项目目前也未列出已实现的广电数据源。[ha_china_comm](https://github.com/sfairy/ha_china_comm) · [carrier-usage-skill](https://github.com/weieast1314/carrier-usage-skill)
 - 10099 自助服务的公开说明不能证明特定短信指令有效。第三方文章所列指令不一致，本项目不采用这些指令。能否取得查询短信、发送号码和格式均需按号码归属地验证。
+
+## 授权账号的网页实测
+
+在官方网页正常输入图形验证码和短信验证码后，使用同一会话进入「个人中心 → 我的账户」。网页显示话费余额、套餐余量，并区分通用和定向流量。开发期间仅观察网页正常发出的请求，记录路由和字段结构。
+
+| 网页步骤 | 观察到的请求或字段 |
+| --- | --- |
+| 取得图形验证码 | `GET /contact-web/api/login/getImageCheckCode` |
+| 发送验证码、登录 | `POST /contact-web/api/login/getVerifyCode` 和 `POST /contact-web/api/login/gwLogin` |
+| 读取余额 | `POST /contact-web/api/busi/qryBalanceFee`，响应中的 `intfResultBean.balance` |
+| 读取套餐资源 | `POST /contact-web/api/busi/qryUserRes`，响应中的 `intfResultBean.userResList`。条目有 `itemTypeCode`、`addupValue`、`balance`、`startTime`、`endTime` 等字段 |
+
+这是官方网页的内部通信。登录和查询请求都有网页生成的 `data` 封装。原浏览器会话可继续查询，另开的浏览器上下文仅恢复 Cookie 后未能恢复登录。尚需核实可支持的第三方认证方法、会话寿命及失效信号，以及不同套餐的单位、包分类和用量字段含义。成功读取一张卡不足以确定这些规则。当前集成使用官方网页实查值录入，继续保留短信推送作为实验性入口。[中国广电网上营业厅](https://www.10099.com.cn/)
 
 ## 短信转发
 

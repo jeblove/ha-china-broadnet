@@ -1,19 +1,17 @@
 """Match complete, explicitly configured China Broadnet SMS formats."""
 
-from collections.abc import Mapping
-from datetime import UTC, datetime
 import hashlib
 import re
 import unicodedata
+from collections.abc import Mapping
+from datetime import UTC, datetime
 
 from .const import SMS_WINDOW, TRAFFIC_KEYS
 from .usage import NUMBER, amount, make_report, traffic_gb
 
 MAX_CONTENT = 2048
 UNITS = r"B|[KMG]I?B"
-OTP = re.compile(
-    r"验证码|校验码|动态密码|一次性密码|verification code|\bOTP\b", re.I
-)
+OTP = re.compile(r"验证码|校验码|动态密码|一次性密码|verification code|\bOTP\b", re.I)
 
 
 def _normalize(text: str) -> str:

@@ -1,9 +1,9 @@
 """Normalize measurements without inferring the scope of a traffic package."""
 
-from datetime import datetime
-from decimal import Decimal
 import re
 import unicodedata
+from datetime import datetime
+from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 from .const import MAX_AGE, TRAFFIC_KEYS

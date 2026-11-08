@@ -6,9 +6,9 @@
 
 | 数据源 | 如何更新 | 验证状态 |
 | --- | --- | --- |
-| 营业厅实查值 | 在官方营业厅查询，随后在 HA 界面录入 | 官方查询渠道有公开资料支持。HA 流程使用合成读数测试 |
+| 营业厅实查值 | 在官方营业厅查询，随后在 HA 界面录入 | 已用授权广电卡确认网页登录和账户查询。HA 自动化测试使用合成读数 |
 | SmsForwarder | 局域网内推送符合本人配置模板的短信 | 实验性。转发表单有上游文档，解析与 HA 接收使用合成短信测试 |
-| 营业厅账号 API | 待研究 | 缺少可复现的认证、查询和会话失效证据 |
+| 营业厅账号 API | 待研究 | 已观察官方网页内部查询，第三方认证、会话失效和数据口径仍待验证 |
 
 目前自动更新来自收到的短信，集成不会主动向运营商查询、登录或发送短信。使用手动入口只需 Home Assistant 和官方查询渠道。短信入口还需要运行 SmsForwarder 的 Android 手机，可直接连接 HA，无需 Gotify 或 Tailscale。详见[数据源调查](docs/data-sources.md)。
 
@@ -77,4 +77,4 @@ ruff format --check .
 pytest -q
 ```
 
-GitHub Actions 配置了 pytest、Ruff、Hassfest 和 HACS 校验。贡献与复现方法见 [CONTRIBUTING.md](CONTRIBUTING.md)。优先收集有授权、已脱敏的短信回执并验证官方账号查询路径，之后再评估套餐名称、账单、独立流量包和发布。进度见 [TODO.md](TODO.md) 和 [CHANGELOG.md](CHANGELOG.md)。
+GitHub Actions 配置了 pytest、Ruff、Hassfest 和 HACS 校验。官方 HACS 校验器只接受公开仓库，因此该任务仅在公开仓库运行。贡献与复现方法见 [CONTRIBUTING.md](CONTRIBUTING.md)。优先收集有授权、已脱敏的短信回执并验证官方账号查询路径，之后再评估套餐名称、账单、独立流量包和发布。进度见 [TODO.md](TODO.md) 和 [CHANGELOG.md](CHANGELOG.md)。

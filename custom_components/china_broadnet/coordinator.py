@@ -1,7 +1,7 @@
 """Share usage data and retire old measurements across all sensors."""
 
-from datetime import UTC, datetime, timedelta
 import logging
+from datetime import UTC, datetime, timedelta
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
