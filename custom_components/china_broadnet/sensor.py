@@ -73,4 +73,6 @@ class BroadnetSensor(CoordinatorEntity[UsageCoordinator], SensorEntity):
     @property
     def available(self) -> bool:
         """Treat missing or expired readings as unavailable."""
-        return super().available and self.native_value is not None
+        return self.native_value is not None and (
+            self.entity_description.key == "last_updated" or super().available
+        )

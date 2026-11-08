@@ -186,7 +186,7 @@ async def test_native_timer_expires_traffic_at_beijing_midnight(hass, freezer):
     assert state(hass, entry, "balance") == "12.0"
 
 
-async def test_portal_setup_refresh_and_reauth(hass, aioclient_mock):
+async def test_portal_setup_refresh_and_reauth(hass, aioclient_mock, freezer):
     """Exercise the native HTTP client through the real config entry lifecycle."""
     import json
 
@@ -234,11 +234,24 @@ async def test_portal_setup_refresh_and_reauth(hass, aioclient_mock):
 
     aioclient_mock.clear_requests()
     aioclient_mock.post(
+        url,
+        json={**success, "data": {"intfResultBean": {"balance": "0"}}},
+        headers={"content-type": "application/json"},
+    )
+    freezer.tick(timedelta(minutes=61))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    assert state(hass, entry, "balance") == "0.0"
+    last_success = state(hass, entry, "last_updated")
+
+    aioclient_mock.clear_requests()
+    aioclient_mock.post(
         url, text="<html>Challenge</html>", headers={"content-type": "text/html"}
     )
     await entry.runtime_data.async_refresh()
     await hass.async_block_till_done()
     assert state(hass, entry, "balance") == STATE_UNAVAILABLE
+    assert state(hass, entry, "last_updated") == last_success
     (flow,) = hass.config_entries.flow.async_progress_by_handler(DOMAIN)
     assert flow["step_id"] == "reauth_confirm"
 
