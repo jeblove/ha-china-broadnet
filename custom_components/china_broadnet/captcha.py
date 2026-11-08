@@ -1,7 +1,10 @@
 """Fetch and display a short-lived official login CAPTCHA."""
 
+from base64 import b64encode
 from collections.abc import Callable
 from datetime import UTC, datetime
+from math import ceil
+from time import monotonic
 
 from aiohttp import ClientError, ClientSession
 from aiohttp.web import Response
@@ -125,17 +128,45 @@ async def async_desktop_login(
     return {"session": session, "cookie": cookie, "user_agent": DESKTOP_AGENT}
 
 
+def _captcha_svg(mime: str, image: bytes, remaining: int) -> str:
+    # Animate a stack of fixed labels within the timer viewport, without scripts.
+    labels = "".join(
+        f'<text x="88" y="{68 + index * 24}">{seconds // 60:02d}:'
+        f"{seconds % 60:02d}</text>"
+        for index, seconds in enumerate(range(remaining, -1, -1))
+    )
+    positions = ";".join(f"0 {-index * 24}" for index in range(remaining + 1))
+    times = ";".join(f"{index / remaining:.6f}" for index in range(remaining + 1))
+    encoded = b64encode(image).decode("ascii")
+    return (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="176" height="74">'
+        f'<image width="176" height="48" href="data:{mime};base64,{encoded}">'
+        f'<set attributeName="visibility" to="hidden" begin="{remaining}s" '
+        'fill="freeze"/></image>'
+        '<clipPath id="timer"><rect y="49" width="176" height="25"/></clipPath>'
+        '<g clip-path="url(#timer)"><g text-anchor="middle" '
+        f'font-family="monospace" font-size="16" fill="#666">{labels}'
+        f'<animateTransform attributeName="transform" type="translate" '
+        f'values="{positions}" keyTimes="{times}" calcMode="discrete" '
+        f'dur="{remaining}s" fill="freeze"/></g></g></svg>'
+    )
+
+
 @callback
 def async_publish_captcha(
     hass: HomeAssistant, mime: str, image: bytes
-) -> tuple[str, Callable[[], None]]:
+) -> tuple[str, float, Callable[[], None]]:
     """Serve a CAPTCHA only through a temporary unguessable local path."""
     webhook_id = webhook.async_generate_id()
+    deadline = monotonic() + CAPTCHA_LIFETIME
 
     async def handle(_hass, _webhook_id, _request):
+        remaining = ceil(deadline - monotonic())
+        if remaining <= 0:
+            return Response(status=410)
         return Response(
-            body=image,
-            content_type=mime,
+            text=_captcha_svg(mime, image, remaining),
+            content_type="image/svg+xml",
             headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
         )
 
@@ -160,4 +191,4 @@ def async_publish_captcha(
         cancel_expiration()
         webhook.async_unregister(hass, webhook_id)
 
-    return webhook.async_generate_path(webhook_id), remove
+    return webhook.async_generate_path(webhook_id), deadline, remove

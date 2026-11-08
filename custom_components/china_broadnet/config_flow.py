@@ -25,7 +25,7 @@ from homeassistant.helpers.selector import (
 from homeassistant.setup import async_setup_component
 
 from .captcha import (
-    CAPTCHA_LIFETIME,
+    LOGIN_PAGE,
     async_desktop_login,
     async_desktop_send_sms,
     async_fetch_captcha,
@@ -33,6 +33,7 @@ from .captcha import (
 )
 from .const import DOMAIN, TRAFFIC_KEYS
 from .portal import (
+    H5_ORIGIN,
     PortalAuthError,
     PortalChallengeError,
     PortalClient,
@@ -81,6 +82,7 @@ class ChinaBroadnetConfigFlow(ConfigFlow, domain=DOMAIN):
 
     async def async_step_desktop_start(self, user_input=None):
         """Offer a desktop login only if the carrier returns a CAPTCHA image."""
+        suggested = None
         if not self._image_path or monotonic() >= self._image_until:
             self._desktop_jar = CookieJar()
             try:
@@ -93,10 +95,15 @@ class ChinaBroadnetConfigFlow(ConfigFlow, domain=DOMAIN):
             else:
                 if await async_setup_component(self.hass, webhook.DOMAIN, {}):
                     error = None
-                    self._image_path, self._remove_image = async_publish_captcha(
-                        self.hass, mime, image
+                    self._image_path, self._image_until, self._remove_image = (
+                        async_publish_captcha(self.hass, mime, image)
                     )
-                    self._image_until = monotonic() + CAPTCHA_LIFETIME
+                    if user_input:
+                        suggested = {
+                            key: value
+                            for key, value in user_input.items()
+                            if key != "image_code"
+                        }
                     user_input = None
                 else:
                     error = "cannot_connect"
@@ -106,7 +113,7 @@ class ChinaBroadnetConfigFlow(ConfigFlow, domain=DOMAIN):
                     data_schema=vol.Schema({}),
                     errors={"base": error},
                 )
-        return await self._async_login_start("desktop_start", user_input)
+        return await self._async_login_start("desktop_start", user_input, suggested)
 
     async def async_step_desktop_retry(self, _user_input=None):
         """Retry fetching the image without sending a login SMS."""
@@ -122,7 +129,7 @@ class ChinaBroadnetConfigFlow(ConfigFlow, domain=DOMAIN):
         finally:
             http.detach()
 
-    async def _async_login_start(self, step_id, user_input):
+    async def _async_login_start(self, step_id, user_input, suggested=None):
         desktop = step_id == "desktop_start"
         entry = self._get_reauth_entry() if self.source == SOURCE_REAUTH else None
         fields = {}
@@ -136,7 +143,7 @@ class ChinaBroadnetConfigFlow(ConfigFlow, domain=DOMAIN):
             }
         fields[vol.Required("consent", default=False)] = bool
         if desktop:
-            fields[vol.Required("image_code")] = TextSelector()
+            fields[vol.Optional("image_code")] = TextSelector()
         errors = {}
         if user_input is not None:
             account = entry.data["account"] if entry else user_input["account"].strip()
@@ -145,7 +152,7 @@ class ChinaBroadnetConfigFlow(ConfigFlow, domain=DOMAIN):
             elif not user_input["consent"]:
                 errors["consent"] = "login_consent"
             elif desktop and not re.fullmatch(
-                r"[A-Za-z0-9]{4,8}", user_input["image_code"].strip()
+                r"[A-Za-z0-9]{4,8}", user_input.get("image_code", "").strip()
             ):
                 errors["image_code"] = "invalid_image_code"
             else:
@@ -185,9 +192,15 @@ class ChinaBroadnetConfigFlow(ConfigFlow, domain=DOMAIN):
                     errors["base"] = error
         return self.async_show_form(
             step_id=step_id,
-            data_schema=vol.Schema(fields),
+            data_schema=self.add_suggested_values_to_schema(
+                vol.Schema(fields), suggested
+            ),
             errors=errors,
-            description_placeholders={"image": self._image_path} if desktop else None,
+            description_placeholders=(
+                {"image": self._image_path, "website": LOGIN_PAGE}
+                if desktop
+                else {"website": f"{H5_ORIGIN}/h5-app/"}
+            ),
         )
 
     async def _async_send_login_sms(self, account, desktop):

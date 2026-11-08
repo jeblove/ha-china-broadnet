@@ -85,7 +85,7 @@
       },
       "h5_start": {
         "title": "Sign in to China Broadnet",
-        "description": "Use China Broadnet’s official mobile website login. Submitting this form requests one login SMS. Review the carrier’s user agreement and privacy policy on the [official mobile website](https://app.10099.com.cn/h5-app/).",
+        "description": "Use China Broadnet’s official mobile website login. Submitting this form requests one login SMS. Review the carrier’s user agreement and privacy policy on the [official mobile website]({website}).",
         "data": {
           "name": "Account alias",
           "account": "Mobile number",
@@ -110,7 +110,7 @@
       },
       "desktop_start": {
         "title": "Image CAPTCHA login (experimental)",
-        "description": "Open Home Assistant from your local network and enter the characters below and your phone number. Submitting requests one login SMS. Review the user agreement and privacy policy at the [official website](https://www.10099.com.cn/login.html).\n\n![China Broadnet CAPTCHA]({image})",
+        "description": "Open Home Assistant from your local network and enter the characters below and your phone number. Submitting requests one login SMS. Review the user agreement and privacy policy at the [official website]({website}). When the timer reaches zero, submit to load a new image.\n\n![China Broadnet CAPTCHA]({image})",
         "data": {
           "name": "Account alias",
           "account": "Mobile number",

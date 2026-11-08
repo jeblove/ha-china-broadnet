@@ -1,6 +1,7 @@
 """Exercise setup, reconfiguration, webhook and entity lifecycle in Home Assistant."""
 
 import asyncio
+from base64 import b64encode
 from datetime import UTC, datetime, timedelta
 from http.cookies import SimpleCookie
 
@@ -381,7 +382,7 @@ async def test_h5_sms_login_and_reauthentication(hass, aioclient_mock):
 
 
 async def test_desktop_captcha_shows_image_then_requests_sms(
-    hass, aioclient_mock, monkeypatch
+    hass, aioclient_mock, monkeypatch, freezer
 ):
     """Keep the image local and send no SMS before the user supplies its text."""
     from yarl import URL
@@ -417,14 +418,30 @@ async def test_desktop_captcha_shows_image_then_requests_sms(
     path = form["description_placeholders"]["image"]
     request = MockRequest(b"", mock_source="test", remote="127.0.0.1")
     response = await webhook.async_handle_webhook(hass, path.rsplit("/", 1)[1], request)
-    assert response.content_type == "image/jpeg"
+    assert response.content_type == "image/svg+xml"
     assert response.headers["Cache-Control"] == "no-store"
-    assert response.body == image
+    assert f"data:image/jpeg;base64,{b64encode(image).decode()}" in response.text
+    assert ">02:00<" in response.text
+    assert 'begin="120s"' in response.text
+    freezer.tick(timedelta(seconds=15))
+    response = await webhook.async_handle_webhook(hass, path.rsplit("/", 1)[1], request)
+    assert ">02:00<" not in response.text
+    assert ">01:45<" in response.text
 
     data = {"name": "Desktop", "account": "19200000000", "consent": True}
     invalid = await submit(hass, form, {**data, "image_code": "!"})
     assert invalid["errors"] == {"image_code": "invalid_image_code"}
     assert aioclient_mock.call_count == 1
+
+    freezer.tick(timedelta(seconds=106))
+    form = await submit(hass, form, {**data, "image_code": "old7"})
+    assert form["step_id"] == "desktop_start"
+    new_path = form["description_placeholders"]["image"]
+    assert new_path != path
+    assert aioclient_mock.call_count == 2
+    flow._desktop_jar.update_cookies(
+        SimpleCookie("JSESSIONID=example; Path=/contact-web"), URL(CAPTCHA_URL)
+    )
 
     api = f"{ORIGIN}/contact-web/api"
     headers = {"content-type": "application/json"}
@@ -435,8 +452,10 @@ async def test_desktop_captcha_shows_image_then_requests_sms(
     )
     form = await submit(hass, form, {**data, "image_code": "aBc7"})
     assert form["step_id"] == "h5_code"
-    assert aioclient_mock.call_count == 2
-    expired = await webhook.async_handle_webhook(hass, path.rsplit("/", 1)[1], request)
+    assert aioclient_mock.call_count == 3
+    expired = await webhook.async_handle_webhook(
+        hass, new_path.rsplit("/", 1)[1], request
+    )
     assert not expired.body
 
     aioclient_mock.post(
