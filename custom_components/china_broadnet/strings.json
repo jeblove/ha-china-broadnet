@@ -92,7 +92,7 @@
       "portal_auth_failed": "The carrier rejected the session. Refresh the website credentials.",
       "cannot_connect": "The carrier query failed. Try again later.",
       "invalid_portal_curl": "Use Copy as cURL (bash) on the qryBalanceFee request in the Network panel.",
-      "portal_challenge": "The carrier returned a browser verification page. Copy a fresh successful balance request from the signed-in tab."
+      "portal_challenge": "China Broadnet returned a browser verification page to Home Assistant. Check whether Home Assistant and your browser use the same internet connection."
     },
     "abort": {
       "already_configured": "This account alias is already configured.",

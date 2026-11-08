@@ -47,7 +47,7 @@ class PortalAuthError(PortalError):
     """The website session or its cookies need to be refreshed."""
 
 
-class PortalChallengeError(PortalAuthError):
+class PortalChallengeError(PortalError):
     """The request reached the website's browser verification page."""
 
 

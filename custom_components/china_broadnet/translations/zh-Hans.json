@@ -92,7 +92,7 @@
       "portal_auth_failed": "广电拒绝了该会话，请更新网页凭据。",
       "cannot_connect": "广电查询失败，请稍后再试。",
       "invalid_portal_curl": "请使用网络面板中的「复制为 cURL (bash)」，并确认复制的是 qryBalanceFee 请求。",
-      "portal_challenge": "广电返回了网页验证页。请从同一已登录标签页重新复制成功的余额请求。"
+      "portal_challenge": "广电向 Home Assistant 返回了网页验证页。请检查 Home Assistant 与浏览器是否使用同一网络出口。"
     },
     "abort": {
       "already_configured": "此账户别名已配置。",

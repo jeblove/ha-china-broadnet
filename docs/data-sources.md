@@ -18,6 +18,10 @@
 | 读取余额 | `POST /contact-web/api/busi/qryBalanceFee`，响应中的 `intfResultBean.balance` |
 | 读取套餐资源 | `POST /contact-web/api/busi/qryUserRes`，响应中的 `intfResultBean.userResList`。条目有 `itemTypeCode`、`addupValue`、`balance`、`startTime`、`endTime` 等字段 |
 
+### 登录入口
+
+直接 HTTP 请求同一官网入口的图形验证码时，实测返回 HTTP 200 的 HTML 页面。网页在正常加载后可以取得验证码并完成短信登录。HA 内直接登录需要先验证能稳定取得验证码，以及提交后能在 HA 出口使用会话。当前观察到的网页登录流程将状态写入官方页面的会话存储，尚未确认可供第三方接收的授权回调。
+
 ### 会话复用
 
 从 Chromium 原配置恢复已登录标签页后，仍可进入账户页面。另开的浏览器上下文仅恢复 Cookie 时未能恢复登录。用同批 Cookie 和原标签页的 `sessionStorage` 恢复后，两个只读查询都成功。另一新上下文仅预置 `broadnetUserPhoneInfo`、`broadnetUserSessionId` 和 `broadnetPhoneSessionId` 三个键，也通过了同样的查询。这三项是本次验证的足够集合，尚未逐项确认其必要性。原标签页的 `localStorage` 为空。上述状态与 Cookie 一样属于敏感会话材料。
@@ -36,7 +40,7 @@
 
 官方网页的请求预处理给相关 POST 请求加入时间戳，生成 `Access` 校验头，并用公开的请求公钥封装为 `data`。网页标签页本地存储与网络请求使用不同的封装。首次直连得到网页挑战 HTML。随后核对实际请求格式，并使用已登录标签页的会话、Cookie 和 User-Agent，原生 HTTP 成功读取余额和套餐资源。对照请求省略 Cookie 时重新收到挑战。
 
-已在隔离的 Home Assistant 测试实例导入授权会话，验证真实余额进入实体。一次使用较早复制的请求头被官网拒绝，在网页中续用原会话并重新导入当前请求头后通过。当前只处理实测的业务 JSON 响应，遇到网页挑战则使用 HA 的重认证流程。中国广电公开的合作商门户面向增值业务入驻，当前公开页面未提供个人话费余额和套餐余量的第三方调用契约。仍需验证长期会话寿命和跨套餐分类。[中国广电网上营业厅](https://www.10099.com.cn/) · [中国广电增值业务合作平台](https://open.10099.com.cn/)
+已在隔离的 Home Assistant 测试实例导入授权会话，验证真实余额进入实体。在同一官网入口，新登录的测试会话使用 HA 默认请求头和浏览器请求头均返回成功的业务 JSON。旧会话在浏览器返回业务状态 `701`，在 HA 返回 HTTP 200 的 HTML 验证页。网页验证页按查询失败处理，由下一次定时刷新重试。业务层明确拒绝会话时才要求重认证。中国广电公开的合作商门户面向增值业务入驻，当前公开页面未提供个人话费余额和套餐余量的第三方调用契约。仍需验证长期会话寿命和跨套餐分类。[中国广电网上营业厅](https://www.10099.com.cn/) · [中国广电增值业务合作平台](https://open.10099.com.cn/)
 
 ## 短信转发
 

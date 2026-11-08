@@ -263,6 +263,14 @@ async def test_portal_setup_refresh_and_reauth(hass, aioclient_mock, freezer):
     await hass.async_block_till_done()
     assert state(hass, entry, "balance") == STATE_UNAVAILABLE
     assert state(hass, entry, "last_updated") == last_success
+    assert not hass.config_entries.flow.async_progress_by_handler(DOMAIN)
+
+    aioclient_mock.clear_requests()
+    aioclient_mock.post(
+        url, json={"status": "701"}, headers={"content-type": "application/json"}
+    )
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
     (flow,) = hass.config_entries.flow.async_progress_by_handler(DOMAIN)
     assert flow["step_id"] == "reauth_confirm"
 
