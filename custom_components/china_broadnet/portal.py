@@ -72,6 +72,10 @@ def parse_portal_curl(command: str) -> dict[str, str]:
     headers = {}
     arguments = iter(parts)
     for part in arguments:
+        if part == "--url" or part.startswith("--url="):
+            part = next(arguments, "") if part == "--url" else part[6:]
+            if part != url or found_url:
+                raise PortalCurlError(error)
         if part == url and not found_url:
             found_url = True
             continue
