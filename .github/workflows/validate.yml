@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -23,14 +23,14 @@ jobs:
       - run: ruff format --check .
       - run: pytest -q
   hassfest:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
     steps:
       - uses: actions/checkout@v6
       - uses: home-assistant/actions/hassfest@master
   hacs:
     # The official validator rejects private repositories before checking files.
     if: ${{ !github.event.repository.private }}
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
     steps:
       - uses: actions/checkout@v6
       - uses: hacs/action@main
