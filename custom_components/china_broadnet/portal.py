@@ -320,14 +320,23 @@ def _monthly_spend(bill: dict, *, h5: bool) -> float | None:
     return None
 
 
-def _outside_data_fee(resources: dict) -> float | None:
+def _outside_fees(resources: dict) -> dict[str, float]:
     rows = resources.get("userExtResList")
     if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], dict):
-        return None
-    try:
-        return _integer(rows[0].get("extDiscntFee"), signed=True) / 100
-    except ValueError:
-        return None
+        return {}
+    cents = {}
+    for key, field in (
+        ("outside_data_fee", "extDiscntFee"),
+        ("outside_voice_fee", "extVoiceFee"),
+        ("outside_sms_fee", "extSmsFee"),
+    ):
+        try:
+            cents[key] = _integer(rows[0].get(field), signed=True)
+        except ValueError:
+            continue
+    if len(cents) == 3:
+        cents["outside_total_fee"] = sum(cents.values())
+    return {key: value / 100 for key, value in cents.items()}
 
 
 def _previous_bill_amount(data: dict, cycle: str) -> float | None:
@@ -676,7 +685,7 @@ class PortalClient:
             "missing_sections": missing_sections,
             "balance_at": balance_at,
             "resources_at": now if isinstance(rows, list) else None,
-            "outside_data_fee": _outside_data_fee(resources),
+            **_outside_fees(resources),
             "previous_bill": previous_bill,
             "previous_bill_cycle": cycle,
             "packages": packages,

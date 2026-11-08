@@ -56,7 +56,13 @@ PORTAL_SENSORS = (
             device_class=SensorDeviceClass.MONETARY,
             native_unit_of_measurement="CNY",
         )
-        for key in ("outside_data_fee", "previous_bill")
+        for key in (
+            "outside_total_fee",
+            "outside_data_fee",
+            "outside_voice_fee",
+            "outside_sms_fee",
+            "previous_bill",
+        )
     ),
     SensorEntityDescription(key="plan_name", translation_key="plan_name"),
     SensorEntityDescription(

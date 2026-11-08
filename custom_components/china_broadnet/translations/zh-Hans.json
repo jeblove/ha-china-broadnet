@@ -216,6 +216,15 @@
       },
       "previous_bill": {
         "name": "上月已出账金额"
+      },
+      "outside_voice_fee": {
+        "name": "本月套餐外语音费"
+      },
+      "outside_sms_fee": {
+        "name": "本月套餐外短信费"
+      },
+      "outside_total_fee": {
+        "name": "本月套餐外费用合计"
       }
     }
   }

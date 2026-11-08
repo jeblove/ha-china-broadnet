@@ -202,7 +202,9 @@ def mock_resources(aioclient_mock, balance_url, rows=()):
             "data": {
                 "intfResultBean": {
                     "userResList": list(rows),
-                    "userExtResList": [{"extDiscntFee": "0"}],
+                    "userExtResList": [
+                        {"extDiscntFee": "0", "extVoiceFee": "13", "extSmsFee": "25"}
+                    ],
                 }
             },
         },
@@ -445,6 +447,9 @@ async def test_h5_sms_login_and_reauthentication(hass, aioclient_mock, freezer):
 
     assert state(hass, entry, "monthly_spend") == "7.25"
     assert state(hass, entry, "outside_data_fee") == "0.0"
+    assert state(hass, entry, "outside_voice_fee") == "0.13"
+    assert state(hass, entry, "outside_sms_fee") == "0.25"
+    assert state(hass, entry, "outside_total_fee") == "0.38"
     assert state(hass, entry, "previous_bill") == "28.0"
     assert state(hass, entry, "query_status") == "success"
     resource_timestamp = state(hass, entry, "resources_updated")

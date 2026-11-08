@@ -216,6 +216,15 @@
       },
       "previous_bill": {
         "name": "Previous month billed charges"
+      },
+      "outside_voice_fee": {
+        "name": "Current month out-of-plan voice charges"
+      },
+      "outside_sms_fee": {
+        "name": "Current month out-of-plan SMS charges"
+      },
+      "outside_total_fee": {
+        "name": "Current month out-of-plan charges"
       }
     }
   }
