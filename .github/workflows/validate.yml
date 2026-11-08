@@ -22,7 +22,6 @@ jobs:
       - run: ruff check .
       - run: ruff format --check .
       - run: pytest -q
-      - run: node --test tools/browser/readings.test.cjs
   hassfest:
     runs-on: ubuntu-latest
     steps:

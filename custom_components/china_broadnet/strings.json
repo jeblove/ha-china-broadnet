@@ -6,8 +6,7 @@
         "title": "Choose a data source",
         "menu_options": {
           "manual": "Enter official hall readings",
-          "sms": "Receive forwarded SMS (experimental)",
-          "browser": "Official website via browser (experimental)"
+          "sms": "Receive forwarded SMS (experimental)"
         }
       },
       "manual": {
@@ -50,20 +49,6 @@
           "balance_template": "Balance message template",
           "traffic_template": "General data message template",
           "unit_base": "Base for B/KB/MB/GB input",
-          "rotate": "Generate a new webhook path"
-        }
-      },
-      "browser": {
-        "title": "Connect the browser companion",
-        "description": "Run the companion on a trusted computer with a browser. The private webhook path is available under Reconfigure.",
-        "data": {
-          "name": "Account alias"
-        }
-      },
-      "browser_update": {
-        "title": "Browser companion webhook",
-        "description": "Append this secret path to the local Home Assistant URL: `{path}`.",
-        "data": {
           "rotate": "Generate a new webhook path"
         }
       }

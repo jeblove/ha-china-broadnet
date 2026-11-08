@@ -222,5 +222,3 @@ __marimo__/
 # Local Home Assistant runtime and credentials
 .ha-config/
 *.har
-.broadnet-browser/
-tools/browser/node_modules/

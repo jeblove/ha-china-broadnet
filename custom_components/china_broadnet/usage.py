@@ -2,7 +2,7 @@
 
 import re
 import unicodedata
-from datetime import datetime, timedelta
+from datetime import datetime
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
@@ -28,7 +28,7 @@ def traffic_gb(number: str, unit: str, base: int) -> float:
     return float(amount(number) * (1024 if binary else 1000) ** power / 1000**3)
 
 
-def current_values(reports: dict, now: datetime, max_age: timedelta = MAX_AGE) -> dict:
+def current_values(reports: dict, now: datetime) -> dict:
     """Return values that are still current and the last accepted timestamp."""
     data = {}
     for group, report in reports.items():
@@ -38,7 +38,7 @@ def current_values(reports: dict, now: datetime, max_age: timedelta = MAX_AGE) -
         same_month = observed.astimezone(SHANGHAI).date().replace(day=1) == (
             now.astimezone(SHANGHAI).date().replace(day=1)
         )
-        if now - observed < max_age and (group != "traffic" or same_month):
+        if now - observed < MAX_AGE and (group != "traffic" or same_month):
             data.update(report["values"])
     return data
 
