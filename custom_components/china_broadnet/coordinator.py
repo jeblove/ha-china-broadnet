@@ -14,8 +14,9 @@ from homeassistant.helpers.event import async_track_point_in_utc_time
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import DOMAIN
+from .insights import UsageInsights
 from .portal import PortalAuthError, PortalChallengeError, PortalClient, PortalError
-from .usage import current_values, report_window
+from .usage import SHANGHAI, current_values, report_window
 
 type BroadnetEntry = ConfigEntry[UsageCoordinator]
 
@@ -43,6 +44,10 @@ class UsageCoordinator(DataUpdateCoordinator[dict]):
             if portal
             else None
         )
+        self.insights = UsageInsights(hass, entry.entry_id) if portal else None
+        self.query_status = "pending"
+        self.balance_updated = None
+        self.resources_updated = None
         self._cancel_deadline: Callable[[], None] | None = None
         entry.async_on_unload(self._async_cancel_deadline)
 
@@ -51,11 +56,23 @@ class UsageCoordinator(DataUpdateCoordinator[dict]):
             try:
                 data = await self._portal.async_read()
             except PortalAuthError as err:
+                self.query_status = "auth_expired"
                 raise ConfigEntryAuthFailed("Refresh the website session") from err
             except PortalChallengeError as err:
+                self.query_status = "verification"
                 raise UpdateFailed(str(err), retry_after=3600) from err
             except PortalError as err:
+                self.query_status = "connection_failed"
                 raise UpdateFailed(str(err)) from err
+            self.balance_updated = data["balance_at"]
+            if data["resources_ok"]:
+                self.resources_updated = data["resources_at"]
+            self.query_status = (
+                "success" if data["resources_ok"] and data["plan_name"] else "partial"
+            )
+            await self.insights.async_apply(data, data["last_updated"])
+            if self._cancel_deadline is None:
+                self._async_schedule_month_end(datetime.now(UTC))
             cookie = self._portal.cookie
             if (
                 cookie is not None
@@ -68,6 +85,30 @@ class UsageCoordinator(DataUpdateCoordinator[dict]):
                 self._portal_data = self.entry.data
             return data
         return self._async_snapshot(datetime.now(UTC))
+
+    @callback
+    def _async_schedule_month_end(self, now: datetime) -> None:
+        local = now.astimezone(SHANGHAI)
+        boundary = local.replace(
+            year=local.year + (local.month == 12),
+            month=local.month % 12 + 1,
+            day=1,
+            hour=0,
+            minute=0,
+            second=0,
+            microsecond=0,
+        )
+        self._cancel_deadline = async_track_point_in_utc_time(
+            self.hass, self._async_month_ended, boundary.astimezone(UTC)
+        )
+
+    async def _async_month_ended(self, _deadline: datetime) -> None:
+        now = datetime.now(UTC)
+        months = await self.insights.async_archive(now)
+        if self.data is not None:
+            self.data = {**self.data, "monthly_snapshots": months}
+            self.async_update_listeners()
+        self._async_schedule_month_end(now)
 
     @callback
     def _async_cancel_deadline(self) -> None:

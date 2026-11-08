@@ -258,8 +258,8 @@ class ChinaBroadnetConfigFlow(ConfigFlow, domain=DOMAIN):
                                     )
                                 )
                         else:
-                            settings["session"] = await async_h5_login(
-                                http, settings["account"], code
+                            settings.update(
+                                await async_h5_login(http, settings["account"], code)
                             )
                     client = PortalClient(http, settings)
                     await client.async_balance()

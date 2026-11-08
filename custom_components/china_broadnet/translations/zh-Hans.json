@@ -187,6 +187,35 @@
       },
       "voice_remaining": {
         "name": "本月语音余量"
+      },
+      "query_status": {
+        "name": "查询状态",
+        "state": {
+          "pending": "等待查询",
+          "success": "查询成功",
+          "partial": "部分数据可用",
+          "auth_expired": "会话已过期",
+          "verification": "官网要求网页验证",
+          "connection_failed": "查询失败"
+        }
+      },
+      "balance_updated": {
+        "name": "余额最后成功查询"
+      },
+      "resources_updated": {
+        "name": "套餐余量最后成功查询"
+      },
+      "monthly_snapshots": {
+        "name": "月末用量快照"
+      },
+      "remaining_days": {
+        "name": "预计流量可用天数"
+      },
+      "outside_data_fee": {
+        "name": "本月套餐外流量费"
+      },
+      "previous_bill": {
+        "name": "上月已出账金额"
       }
     }
   }

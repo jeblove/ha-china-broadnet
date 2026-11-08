@@ -6,7 +6,7 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.const import UnitOfInformation, UnitOfTime
+from homeassistant.const import EntityCategory, UnitOfInformation, UnitOfTime
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
@@ -49,6 +49,15 @@ PORTAL_SENSORS = (
         device_class=SensorDeviceClass.MONETARY,
         native_unit_of_measurement="CNY",
     ),
+    *(
+        SensorEntityDescription(
+            key=key,
+            translation_key=key,
+            device_class=SensorDeviceClass.MONETARY,
+            native_unit_of_measurement="CNY",
+        )
+        for key in ("outside_data_fee", "previous_bill")
+    ),
     SensorEntityDescription(key="plan_name", translation_key="plan_name"),
     SensorEntityDescription(
         key="voice_remaining",
@@ -56,6 +65,42 @@ PORTAL_SENSORS = (
         device_class=SensorDeviceClass.DURATION,
         native_unit_of_measurement=UnitOfTime.MINUTES,
         state_class=SensorStateClass.MEASUREMENT,
+    ),
+)
+
+
+PORTAL_DIAGNOSTICS = (
+    SensorEntityDescription(
+        key="query_status",
+        translation_key="query_status",
+        device_class=SensorDeviceClass.ENUM,
+        options=[
+            "pending",
+            "success",
+            "partial",
+            "auth_expired",
+            "verification",
+            "connection_failed",
+        ],
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    *(
+        SensorEntityDescription(
+            key=key,
+            translation_key=key,
+            device_class=SensorDeviceClass.TIMESTAMP,
+            entity_category=EntityCategory.DIAGNOSTIC,
+        )
+        for key in ("balance_updated", "resources_updated")
+    ),
+    SensorEntityDescription(
+        key="monthly_snapshots", translation_key="monthly_snapshots"
+    ),
+    SensorEntityDescription(
+        key="remaining_days",
+        translation_key="remaining_days",
+        native_unit_of_measurement=UnitOfTime.DAYS,
+        suggested_display_precision=2,
     ),
 )
 
@@ -70,7 +115,8 @@ async def async_setup_entry(
     if entry.data["source"] != "portal":
         return
     async_add_entities(
-        BroadnetSensor(entry, description) for description in PORTAL_SENSORS
+        BroadnetSensor(entry, description)
+        for description in (*PORTAL_SENSORS, *PORTAL_DIAGNOSTICS)
     )
     coordinator = entry.runtime_data
     added = set()
@@ -111,13 +157,41 @@ class BroadnetSensor(CoordinatorEntity[UsageCoordinator], SensorEntity):
     @property
     def native_value(self):
         """Return the current measurement or an unknown state."""
-        return self.coordinator.data.get(self.entity_description.key)
+        key = self.entity_description.key
+        if key in ("query_status", "balance_updated", "resources_updated"):
+            return getattr(self.coordinator, key)
+        if key == "monthly_snapshots":
+            snapshots = self.coordinator.data.get(key, [])
+            return snapshots[0]["month"] if snapshots else None
+        return self.coordinator.data.get(key)
+
+    @property
+    def extra_state_attributes(self):
+        """Preserve usage scope in Recorder and expose archived observations."""
+        key = self.entity_description.key
+        if key == "data_used" and (scope := self.coordinator.data.get("usage_scope")):
+            return {"usage_scope": scope}
+        if key == "previous_bill" and (
+            cycle := self.coordinator.data.get("previous_bill_cycle")
+        ):
+            return {"billing_cycle": cycle}
+        if key == "monthly_snapshots":
+            return {"months": self.coordinator.data.get(key, [])}
+        return None
 
     @property
     def available(self) -> bool:
         """Treat missing or expired readings as unavailable."""
         return self.native_value is not None and (
-            self.entity_description.key == "last_updated" or super().available
+            self.entity_description.key
+            in (
+                "last_updated",
+                "query_status",
+                "balance_updated",
+                "resources_updated",
+                "monthly_snapshots",
+            )
+            or super().available
         )
 
 

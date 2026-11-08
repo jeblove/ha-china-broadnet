@@ -214,7 +214,10 @@ def _packages(rows: list, now: datetime) -> dict:
             ),
             None,
         )
-        if category is None:
+        if category is None or (
+            category == "general"
+            and (row.get("shareResInfo") or row.get("ownerType") not in (None, "0"))
+        ):
             continue
         try:
             start, end = _resource_dates(row)
@@ -264,7 +267,9 @@ def _traffic(packages: dict, names: list[str] | None) -> dict[str, float]:
         if package["category"] == "general"
         and (names is None or package["name"] in names)
     ]
-    if not selected:
+    if not selected or (
+        names is not None and {pack["name"] for pack in selected} != set(names)
+    ):
         return {}
     total = sum(package["total"] for package in selected)
     remaining = sum(package["remaining"] for package in selected)
@@ -313,6 +318,34 @@ def _monthly_spend(bill: dict, *, h5: bool) -> float | None:
     except TypeError, ValueError:
         pass
     return None
+
+
+def _outside_data_fee(resources: dict) -> float | None:
+    rows = resources.get("userExtResList")
+    if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], dict):
+        return None
+    try:
+        return _integer(rows[0].get("extDiscntFee"), signed=True) / 100
+    except ValueError:
+        return None
+
+
+def _previous_bill_amount(data: dict, cycle: str) -> float | None:
+    bean = data.get("intfResultBean")
+    if data.get("respCode") != "000000" or not isinstance(bean, dict):
+        return None
+    rows = bean.get("custBillList")
+    if not isinstance(rows, list):
+        return None
+    matches = [
+        row for row in rows if isinstance(row, dict) and row.get("cycleId") == cycle
+    ]
+    if len(matches) != 1:
+        return None
+    try:
+        return _integer(matches[0].get("feeSum"), signed=True) / 100
+    except ValueError:
+        return None
 
 
 def valid_phone(value: object) -> bool:
@@ -384,7 +417,9 @@ async def async_h5_send_sms(http: ClientSession, phone: str) -> None:
         raise PortalCodeError("Website rejected the login SMS request")
 
 
-async def async_h5_login(http: ClientSession, phone: str, code: str) -> str:
+async def async_h5_login(
+    http: ClientSession, phone: str, code: str
+) -> dict[str, str | None]:
     """Exchange a user-entered login code for an account session."""
     result = await _h5_request(
         http,
@@ -401,7 +436,16 @@ async def async_h5_login(http: ClientSession, phone: str, code: str) -> str:
     data = result.get("data")
     if not isinstance(data, dict) or not _valid_session_id(data.get("sessionId")):
         raise PortalError("Invalid website session response")
-    return data["sessionId"]
+    info = data.get("phoneInfo")
+    region = info.get("areaCode") if isinstance(info, dict) else None
+    return {
+        "session": data["sessionId"],
+        "region": region if _valid_region(region) else None,
+    }
+
+
+def _valid_region(region: object) -> bool:
+    return isinstance(region, str) and re.fullmatch(r"[0-9]{1,12}", region) is not None
 
 
 class PortalClient:
@@ -411,6 +455,10 @@ class PortalClient:
         self._http = http
         self._plan_name: str | None = None
         self._plan_checked: datetime | None = None
+        self._region = settings.get("region")
+        self._bill_cycle: str | None = None
+        self._bill_at: datetime | None = None
+        self._previous_bill: float | None = None
         legacy = settings.get("package", "").strip()
         self._packages = settings.get("packages", [legacy] if legacy else None)
         self._h5 = settings.get("portal_mode") == "h5"
@@ -534,10 +582,48 @@ class PortalClient:
         except ValueError:
             raise PortalError("Invalid balance response") from None
 
+    async def _async_previous_bill(
+        self, now: datetime
+    ) -> tuple[str | None, float | None]:
+        if not self._h5 or not _valid_region(self._region):
+            return None, None
+        month, _ = _month_bounds(now.astimezone(SHANGHAI))
+        cycle = (month - timedelta(days=1)).strftime("%Y%m")
+        if self._bill_cycle != cycle:
+            self._bill_cycle = cycle
+            self._previous_bill = self._bill_at = None
+        if self._previous_bill is None and (
+            self._bill_at is None or now - self._bill_at >= timedelta(hours=6)
+        ):
+            self._bill_at = now
+            try:
+                result = await _h5_request(
+                    self._http,
+                    "busi/onlineQueryCustBillMM",
+                    {
+                        "accessNum": self.account,
+                        "sessionId": self._session_id,
+                        "channelType": "1",
+                        "subscriberType": "00",
+                        "regionId": self._region,
+                        "startCycleId": cycle,
+                        "endCycleId": cycle,
+                    },
+                    session=self._session_id,
+                )
+            except PortalError:
+                return cycle, None
+            data = result.get("data")
+            if result.get("status") == "000000" and isinstance(data, dict):
+                self._previous_bill = _previous_bill_amount(data, cycle)
+        return cycle, self._previous_bill
+
     async def async_read(self) -> dict:
         """Return balance, selected general usage and individually classified packs."""
         bill = await self._query("qryBalanceFee")
         balance = self._balance(bill)
+        balance_at = datetime.now(UTC)
+        resources = {}
         try:
             resources = await self._query("qryUserRes")
             rows = resources.get("userResList")
@@ -546,6 +632,7 @@ class PortalClient:
         except PortalError:
             rows = None
         now = datetime.now(UTC)
+        cycle, previous_bill = await self._async_previous_bill(now)
         if self._plan_checked is None or now - self._plan_checked >= timedelta(hours=6):
             self._plan_checked = now
             try:
@@ -559,9 +646,31 @@ class PortalClient:
                     plan.strip() if isinstance(plan, str) and len(plan) <= 255 else None
                 )
         packages = _packages(rows, now) if isinstance(rows, list) else {}
+        traffic = _traffic(packages, self._packages)
+        scope = None
+        if traffic:
+            selected = [
+                (
+                    pack["name"],
+                    pack["start"].isoformat(),
+                    pack["end"].isoformat(),
+                    pack["total"],
+                )
+                for pack in packages.values()
+                if pack["category"] == "general"
+                and (self._packages is None or pack["name"] in self._packages)
+            ]
+            scope = hashlib.sha256(json.dumps(sorted(selected)).encode()).hexdigest()
         return {
             "balance": balance,
-            **_traffic(packages, self._packages),
+            **traffic,
+            "usage_scope": scope,
+            "resources_ok": isinstance(rows, list),
+            "balance_at": balance_at,
+            "resources_at": now if isinstance(rows, list) else None,
+            "outside_data_fee": _outside_data_fee(resources),
+            "previous_bill": previous_bill,
+            "previous_bill_cycle": cycle,
             "packages": packages,
             "monthly_spend": _monthly_spend(bill, h5=self._h5),
             "plan_name": self._plan_name or None,

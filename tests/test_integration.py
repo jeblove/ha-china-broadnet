@@ -199,7 +199,12 @@ def mock_resources(aioclient_mock, balance_url, rows=()):
         json={
             "status": "000000",
             "ok": True,
-            "data": {"intfResultBean": {"userResList": list(rows)}},
+            "data": {
+                "intfResultBean": {
+                    "userResList": list(rows),
+                    "userExtResList": [{"extDiscntFee": "0"}],
+                }
+            },
         },
         headers={"content-type": "application/json"},
     )
@@ -392,7 +397,10 @@ async def test_h5_sms_login_and_reauthentication(hass, aioclient_mock, freezer):
     aioclient_mock.clear_requests()
     aioclient_mock.post(
         login_url,
-        json={**success, "data": {"sessionId": "h5-session"}},
+        json={
+            **success,
+            "data": {"sessionId": "h5-session", "phoneInfo": {"areaCode": "0123"}},
+        },
         headers=headers,
     )
     aioclient_mock.post(
@@ -412,6 +420,19 @@ async def test_h5_sms_login_and_reauthentication(hass, aioclient_mock, freezer):
         headers=headers,
     )
     mock_resources(aioclient_mock, balance_url, rows)
+    aioclient_mock.post(
+        f"{api}/busi/onlineQueryCustBillMM",
+        json={
+            "status": "000000",
+            "data": {
+                "respCode": "000000",
+                "intfResultBean": {
+                    "custBillList": [{"cycleId": "202610", "feeSum": "2800"}]
+                },
+            },
+        },
+        headers=headers,
+    )
     result = await submit(hass, form, {"code": "654321"})
     assert result["type"] is FlowResultType.CREATE_ENTRY, result.get("errors")
     entry = result["result"]
@@ -423,6 +444,10 @@ async def test_h5_sms_login_and_reauthentication(hass, aioclient_mock, freezer):
     assert aioclient_mock.mock_calls[-1][3]["Session"] == "h5-session"
 
     assert state(hass, entry, "monthly_spend") == "7.25"
+    assert state(hass, entry, "outside_data_fee") == "0.0"
+    assert state(hass, entry, "previous_bill") == "28.0"
+    assert state(hass, entry, "query_status") == "success"
+    resource_timestamp = state(hass, entry, "resources_updated")
     assert state(hass, entry, "voice_remaining") == "0"
     assert state(hass, entry, "plan_name") == "Example plan"
     assert float(state(hass, entry, "data_total")) == 2.147483648
@@ -447,11 +472,29 @@ async def test_h5_sms_login_and_reauthentication(hass, aioclient_mock, freezer):
     assert duplicate["reason"] == "already_configured"
 
     aioclient_mock.clear_requests()
+    aioclient_mock.post(
+        balance_url, json={**success, "data": {"balance": "30.00"}}, headers=headers
+    )
+    aioclient_mock.post(f"{api}/busi/qryUserRes", status=503, headers=headers)
+    freezer.tick(timedelta(minutes=1))
+    await entry.runtime_data.async_refresh()
+    assert state(hass, entry, "balance") == "30.0"
+    assert state(hass, entry, "query_status") == "partial"
+    assert state(hass, entry, "resources_updated") == resource_timestamp
+
+    aioclient_mock.clear_requests()
     aioclient_mock.post(balance_url, json={"status": "701"}, headers=headers)
     await entry.runtime_data.async_refresh()
     await hass.async_block_till_done()
     (flow,) = hass.config_entries.flow.async_progress_by_handler(DOMAIN)
     assert flow["step_id"] == "h5_start"
+    assert state(hass, entry, "query_status") == "auth_expired"
+    assert aioclient_mock.call_count == 1
+    freezer.move_to("2026-11-30 16:00:01")
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    assert state(hass, entry, "monthly_snapshots") == "2026-11"
+    assert state(hass, entry, "query_status") == "auth_expired"
     assert aioclient_mock.call_count == 1
 
     aioclient_mock.clear_requests()

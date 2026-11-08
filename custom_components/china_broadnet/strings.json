@@ -187,6 +187,35 @@
       },
       "voice_remaining": {
         "name": "Monthly voice remaining"
+      },
+      "query_status": {
+        "name": "Query status",
+        "state": {
+          "pending": "Pending",
+          "success": "Successful",
+          "partial": "Partial data",
+          "auth_expired": "Session expired",
+          "verification": "Browser verification required",
+          "connection_failed": "Query failed"
+        }
+      },
+      "balance_updated": {
+        "name": "Last successful balance query"
+      },
+      "resources_updated": {
+        "name": "Last successful resource query"
+      },
+      "monthly_snapshots": {
+        "name": "Monthly usage archive"
+      },
+      "remaining_days": {
+        "name": "Estimated days of data remaining"
+      },
+      "outside_data_fee": {
+        "name": "Current month out-of-plan data charges"
+      },
+      "previous_bill": {
+        "name": "Previous month billed charges"
       }
     }
   }
