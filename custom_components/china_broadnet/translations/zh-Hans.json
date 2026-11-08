@@ -7,7 +7,8 @@
         "menu_options": {
           "manual": "录入营业厅实查值",
           "sms": "接收转发短信（实验性）",
-          "portal": "网上营业厅会话（实验性）"
+          "portal": "网上营业厅会话（实验性）",
+          "h5_start": "手机号和短信验证码登录"
         }
       },
       "manual": {
@@ -80,6 +81,31 @@
           "package": "本月套餐通用流量包完整名称（可选）",
           "curl": "粘贴余额请求的 cURL (bash)"
         }
+      },
+      "h5_start": {
+        "title": "登录中国广电",
+        "description": "使用广电官方移动网页的登录方式。提交本表单将请求一条登录短信。请在[广电官方移动网页](https://app.10099.com.cn/h5-app/)查看用户服务协议和隐私保护政策。",
+        "data": {
+          "name": "账号别名",
+          "account": "手机号",
+          "package": "本月套餐通用流量包的准确名称（可选）",
+          "consent": "我同意运营商协议，并申请发送短信验证码"
+        }
+      },
+      "h5_code": {
+        "title": "验证登录短信",
+        "description": "填写中国广电发来的验证码。验证码过期时，可间隔至少 60 秒重新发送。如果已登录但余额校验失败，可直接再次提交以重试查询。",
+        "data": {
+          "code": "短信验证码",
+          "resend": "重新发送验证码"
+        }
+      },
+      "h5_update": {
+        "title": "更新通用流量包",
+        "description": "留空时只显示余额。修改这项设置不会发送登录短信。",
+        "data": {
+          "package": "本月套餐通用流量包的准确名称（可选）"
+        }
       }
     },
     "error": {
@@ -92,7 +118,13 @@
       "portal_auth_failed": "广电拒绝了该会话，请更新网页凭据。",
       "cannot_connect": "广电查询失败，请稍后再试。",
       "invalid_portal_curl": "请使用网络面板中的「复制为 cURL (bash)」，并确认复制的是 qryBalanceFee 请求。",
-      "portal_challenge": "广电向 Home Assistant 返回了网页验证页。请检查 Home Assistant 与浏览器是否使用同一网络出口。"
+      "portal_challenge": "广电向 Home Assistant 返回了网页验证页。请检查 Home Assistant 与浏览器是否使用同一网络出口。",
+      "invalid_phone": "请输入 11 位手机号。",
+      "login_consent": "请确认运营商协议和短信发送请求。",
+      "invalid_package": "请输入不超过 128 字符的流量包名称。",
+      "sms_cooldown": "请间隔至少 60 秒再请求验证码。",
+      "sms_rejected": "广电拒绝了短信发送请求，请稍后再试。",
+      "invalid_sms_code": "请输入有效的短信验证码，并确认验证码是否过期。"
     },
     "abort": {
       "already_configured": "此账户别名已配置。",

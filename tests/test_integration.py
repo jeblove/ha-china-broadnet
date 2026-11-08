@@ -278,8 +278,10 @@ async def test_portal_setup_refresh_and_reauth(hass, aioclient_mock, freezer):
     aioclient_mock.post(
         url, json={"status": "701"}, headers={"content-type": "application/json"}
     )
-    await entry.runtime_data.async_refresh()
+    freezer.tick(timedelta(minutes=52))
+    async_fire_time_changed(hass)
     await hass.async_block_till_done()
+    assert aioclient_mock.call_count == 1
     (flow,) = hass.config_entries.flow.async_progress_by_handler(DOMAIN)
     assert flow["step_id"] == "reauth_confirm"
 
@@ -293,3 +295,86 @@ async def test_portal_setup_refresh_and_reauth(hass, aioclient_mock, freezer):
     assert entry.data["user_agent"] == "Example browser"
     assert "curl" not in entry.data
     assert state(hass, entry, "balance") == "12.01"
+
+
+async def test_h5_sms_login_and_reauthentication(hass, aioclient_mock):
+    """Only user submission sends an SMS and HA reuses the verified session."""
+    from custom_components.china_broadnet.portal import H5_ORIGIN
+
+    api = f"{H5_ORIGIN}/contact-web/api"
+    headers = {"content-type": "application/json"}
+    sms_url = f"{api}/login/getVerifyCode"
+    login_url = f"{api}/login/gwLogin"
+    balance_url = f"{api}/busi/qryBillInfo"
+    success = {"status": "000000"}
+    data = {"name": "Mobile", "account": "19200000000", "consent": True}
+
+    form = await start_flow(hass, "h5_start")
+    invalid = await submit(hass, form, {**data, "account": "192"})
+    assert invalid["errors"] == {"account": "invalid_phone"}
+    refused = await submit(hass, form, {**data, "consent": False})
+    assert refused["errors"] == {"consent": "login_consent"}
+    assert aioclient_mock.call_count == 0
+
+    aioclient_mock.post(sms_url, json=success, headers=headers)
+    form = await submit(hass, form, data)
+    assert form["step_id"] == "h5_code"
+    assert aioclient_mock.call_count == 1
+    early = await submit(hass, form, {"resend": True})
+    assert early["errors"] == {"base": "sms_cooldown"}
+    assert aioclient_mock.call_count == 1
+
+    aioclient_mock.clear_requests()
+    aioclient_mock.post(login_url, json={"status": "DENIED"}, headers=headers)
+    invalid = await submit(hass, form, {"code": "123456"})
+    assert invalid["errors"] == {"code": "invalid_sms_code"}
+    assert aioclient_mock.call_count == 1
+
+    aioclient_mock.clear_requests()
+    aioclient_mock.post(
+        login_url,
+        json={**success, "data": {"sessionId": "h5-session"}},
+        headers=headers,
+    )
+    aioclient_mock.post(
+        balance_url, json={**success, "data": {"balance": "84.30"}}, headers=headers
+    )
+    result = await submit(hass, form, {"code": "654321"})
+    assert result["type"] is FlowResultType.CREATE_ENTRY, result.get("errors")
+    entry = result["result"]
+    assert entry.data["session"] == "h5-session"
+    assert "code" not in entry.data
+    assert "consent" not in entry.data
+    assert "cookie" not in entry.data
+    assert state(hass, entry, "balance") == "84.3"
+    assert aioclient_mock.mock_calls[-1][3]["Session"] == "h5-session"
+
+    duplicate_form = await start_flow(hass, "h5_start")
+    duplicate = await submit(hass, duplicate_form, {**data, "name": "Another alias"})
+    assert duplicate["reason"] == "already_configured"
+
+    aioclient_mock.clear_requests()
+    aioclient_mock.post(balance_url, json={"status": "701"}, headers=headers)
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    (flow,) = hass.config_entries.flow.async_progress_by_handler(DOMAIN)
+    assert flow["step_id"] == "h5_start"
+    assert aioclient_mock.call_count == 1
+
+    aioclient_mock.clear_requests()
+    aioclient_mock.post(sms_url, json=success, headers=headers)
+    form = await submit(hass, flow, {"consent": True})
+    assert form["step_id"] == "h5_code"
+
+    aioclient_mock.post(
+        login_url,
+        json={**success, "data": {"sessionId": "new-h5-session"}},
+        headers=headers,
+    )
+    aioclient_mock.post(
+        balance_url, json={**success, "data": {"balance": "0"}}, headers=headers
+    )
+    result = await submit(hass, form, {"code": "123456"})
+    assert result["reason"] == "reauth_successful"
+    assert entry.data["session"] == "new-h5-session"
+    assert state(hass, entry, "balance") == "0.0"

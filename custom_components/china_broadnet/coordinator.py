@@ -58,7 +58,8 @@ class UsageCoordinator(DataUpdateCoordinator[dict]):
                 raise UpdateFailed(str(err)) from err
             cookie = self._portal.cookie
             if (
-                self.entry.data is self._portal_data
+                cookie is not None
+                and self.entry.data is self._portal_data
                 and self.entry.data["cookie"] != cookie
             ):
                 self.hass.config_entries.async_update_entry(
