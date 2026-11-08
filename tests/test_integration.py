@@ -2,6 +2,7 @@
 
 import asyncio
 from datetime import UTC, datetime, timedelta
+from http.cookies import SimpleCookie
 
 from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
@@ -244,15 +245,18 @@ async def test_portal_setup_refresh_and_reauth(hass, aioclient_mock, freezer):
     assert state(hass, entry, "balance") == "12.01"
 
     aioclient_mock.clear_requests()
-    aioclient_mock.post(
+    response = aioclient_mock.request(
+        "POST",
         url,
         json={**success, "data": {"intfResultBean": {"balance": "0"}}},
         headers={"content-type": "application/json"},
     )
+    response.cookies.update(SimpleCookie("SERVERID=renewed; Path=/"))
     freezer.tick(timedelta(minutes=61))
     async_fire_time_changed(hass)
     await hass.async_block_till_done()
     assert state(hass, entry, "balance") == "0.0"
+    assert entry.data["cookie"] == "example=authorized; SERVERID=renewed"
     last_success = state(hass, entry, "last_updated")
 
     aioclient_mock.clear_requests()
@@ -261,6 +265,7 @@ async def test_portal_setup_refresh_and_reauth(hass, aioclient_mock, freezer):
     )
     await entry.runtime_data.async_refresh()
     await hass.async_block_till_done()
+    assert aioclient_mock.mock_calls[-1][3]["Cookie"] == entry.data["cookie"]
     assert state(hass, entry, "balance") == STATE_UNAVAILABLE
     assert state(hass, entry, "last_updated") == last_success
     assert not hass.config_entries.flow.async_progress_by_handler(DOMAIN)

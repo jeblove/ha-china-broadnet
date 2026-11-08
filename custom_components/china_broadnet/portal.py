@@ -235,6 +235,11 @@ class PortalClient:
         if len(self._package) > 128:
             raise ValueError("Invalid package name")
 
+    @property
+    def cookie(self) -> str:
+        """Return the current website cookie header."""
+        return self._headers["Cookie"]
+
     async def _query(self, route: str) -> dict:
         access, payload = _request(self.account, self._session_id, datetime.now(UTC))
         try:
@@ -259,6 +264,7 @@ class PortalClient:
                     body.extend(chunk)
                     if len(body) > MAX_RESPONSE:
                         raise PortalError("Website response exceeds limit")
+                route_cookie = response.cookies.get("SERVERID")
             envelope = json.loads(body)
         except ClientError, TimeoutError, ValueError, RecursionError:
             raise PortalError("Website request failed") from None
@@ -275,6 +281,22 @@ class PortalClient:
             or not isinstance(bean := data.get("intfResultBean"), dict)
         ):
             raise PortalError("Invalid website response")
+        # The official endpoint rotates this host-only routing cookie on success.
+        if (
+            route_cookie
+            and route_cookie["path"] == "/"
+            and not any(route_cookie[key] for key in ("domain", "expires", "max-age"))
+            and re.fullmatch(r"[A-Za-z0-9_.|~-]{1,256}", route_cookie.value)
+        ):
+            cookies = [
+                part.strip()
+                for part in self.cookie.split(";")
+                if part.strip() and part.partition("=")[0].strip() != "SERVERID"
+            ]
+            cookies.append(f"SERVERID={route_cookie.value}")
+            header = "; ".join(cookies)
+            if len(header) <= 8192:
+                self._headers["Cookie"] = header
         return bean
 
     async def async_balance(self) -> float:

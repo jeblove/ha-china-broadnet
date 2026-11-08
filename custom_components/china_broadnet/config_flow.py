@@ -100,6 +100,7 @@ class ChinaBroadnetConfigFlow(ConfigFlow, domain=DOMAIN):
             except PortalError:
                 errors["base"] = "cannot_connect"
             else:
+                settings["cookie"] = client.cookie
                 if entry:
                     return self.async_update_reload_and_abort(
                         entry, data_updates=settings

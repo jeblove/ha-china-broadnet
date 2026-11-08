@@ -34,6 +34,7 @@ class UsageCoordinator(DataUpdateCoordinator[dict]):
             always_update=False,
         )
         self.entry = entry
+        self._portal_data = entry.data if portal else None
         self._portal = (
             PortalClient(
                 async_create_clientsession(hass, cookie_jar=DummyCookieJar()),
@@ -48,11 +49,21 @@ class UsageCoordinator(DataUpdateCoordinator[dict]):
     async def _async_update_data(self) -> dict:
         if self._portal is not None:
             try:
-                return await self._portal.async_read()
+                data = await self._portal.async_read()
             except PortalAuthError as err:
                 raise ConfigEntryAuthFailed("Refresh the website session") from err
             except PortalError as err:
                 raise UpdateFailed(str(err)) from err
+            cookie = self._portal.cookie
+            if (
+                self.entry.data is self._portal_data
+                and self.entry.data["cookie"] != cookie
+            ):
+                self.hass.config_entries.async_update_entry(
+                    self.entry, data={**self.entry.data, "cookie": cookie}
+                )
+                self._portal_data = self.entry.data
+            return data
         return self._async_snapshot(datetime.now(UTC))
 
     @callback
