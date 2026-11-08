@@ -661,11 +661,19 @@ class PortalClient:
                 and (self._packages is None or pack["name"] in self._packages)
             ]
             scope = hashlib.sha256(json.dumps(sorted(selected)).encode()).hexdigest()
+        missing_sections = []
+        if not isinstance(rows, list):
+            missing_sections.append("resources")
+        elif self._packages and not traffic:
+            missing_sections.append("selected_packages")
+        if not self._plan_name:
+            missing_sections.append("plan")
         return {
             "balance": balance,
             **traffic,
             "usage_scope": scope,
             "resources_ok": isinstance(rows, list),
+            "missing_sections": missing_sections,
             "balance_at": balance_at,
             "resources_at": now if isinstance(rows, list) else None,
             "outside_data_fee": _outside_data_fee(resources),

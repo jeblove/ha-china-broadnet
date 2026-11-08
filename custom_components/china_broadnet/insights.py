@@ -4,7 +4,6 @@ import math
 from asyncio import Lock
 from collections import defaultdict, deque
 from datetime import timedelta
-from functools import partial
 
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.recorder import get_instance
@@ -19,7 +18,7 @@ SPIKE_THRESHOLD = 5.0
 
 def snapshot_store(hass, entry_id):
     """Keep only account metrics, never credentials, in per-entry storage."""
-    return Store(hass, 1, f"{DOMAIN}.{entry_id}.usage")
+    return Store(hass, 1, f"{DOMAIN}.{entry_id}.usage", private=True)
 
 
 def package_changes(previous, current):
@@ -93,6 +92,24 @@ def daily_rate(history, now, used, scope):
     time, value = baseline
     days = (now - time).total_seconds() / 86400
     return (used - value) / days if days >= 1 and used > value else None
+
+
+def _recorded_rate(hass, entity_id, now, used, scope):
+    from sqlalchemy.exc import SQLAlchemyError
+
+    from homeassistant.components.recorder.history import get_significant_states
+
+    try:
+        states = get_significant_states(
+            hass,
+            now - timedelta(days=7),
+            now,
+            [entity_id],
+            include_start_time_state=False,
+        )
+        return daily_rate(states.get(entity_id, ()), now, used, scope)
+    except SQLAlchemyError:
+        return None
 
 
 class UsageInsights:
@@ -196,26 +213,9 @@ class UsageInsights:
             )
             if entity_id is None:
                 return
-            from sqlalchemy.exc import SQLAlchemyError
-
-            from homeassistant.components.recorder.history import get_significant_states
-
             self._rate_at = now
-            recorder = get_instance(self.hass)
-            try:
-                states = await recorder.async_add_executor_job(
-                    partial(
-                        get_significant_states,
-                        self.hass,
-                        now - timedelta(days=7),
-                        now,
-                        [entity_id],
-                        include_start_time_state=False,
-                    )
-                )
-            except SQLAlchemyError:
-                self._rate = None
-                return
-            self._rate = daily_rate(states.get(entity_id, ()), now, used, scope)
+            self._rate = await get_instance(self.hass).async_add_executor_job(
+                _recorded_rate, self.hass, entity_id, now, used, scope
+            )
         if self._rate:
             data["remaining_days"] = round(data["data_remaining"] / self._rate, 2)

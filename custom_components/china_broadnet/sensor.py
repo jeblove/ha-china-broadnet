@@ -169,6 +169,10 @@ class BroadnetSensor(CoordinatorEntity[UsageCoordinator], SensorEntity):
     def extra_state_attributes(self):
         """Preserve usage scope in Recorder and expose archived observations."""
         key = self.entity_description.key
+        if key == "query_status" and self.coordinator.query_status == "partial":
+            return {
+                "missing_sections": self.coordinator.data.get("missing_sections", [])
+            }
         if key == "data_used" and (scope := self.coordinator.data.get("usage_scope")):
             return {"usage_scope": scope}
         if key == "previous_bill" and (

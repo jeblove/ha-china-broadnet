@@ -67,9 +67,7 @@ class UsageCoordinator(DataUpdateCoordinator[dict]):
             self.balance_updated = data["balance_at"]
             if data["resources_ok"]:
                 self.resources_updated = data["resources_at"]
-            self.query_status = (
-                "success" if data["resources_ok"] and data["plan_name"] else "partial"
-            )
+            self.query_status = "partial" if data["missing_sections"] else "success"
             await self.insights.async_apply(data, data["last_updated"])
             if self._cancel_deadline is None:
                 self._async_schedule_month_end(datetime.now(UTC))
@@ -102,7 +100,13 @@ class UsageCoordinator(DataUpdateCoordinator[dict]):
             self.hass, self._async_month_ended, boundary.astimezone(UTC)
         )
 
-    async def _async_month_ended(self, _deadline: datetime) -> None:
+    @callback
+    def _async_month_ended(self, _deadline: datetime) -> None:
+        self.entry.async_create_task(
+            self.hass, self._async_archive_month(), "archive China Broadnet usage"
+        )
+
+    async def _async_archive_month(self) -> None:
         now = datetime.now(UTC)
         months = await self.insights.async_archive(now)
         if self.data is not None:

@@ -480,6 +480,10 @@ async def test_h5_sms_login_and_reauthentication(hass, aioclient_mock, freezer):
     await entry.runtime_data.async_refresh()
     assert state(hass, entry, "balance") == "30.0"
     assert state(hass, entry, "query_status") == "partial"
+    status_id = er.async_get(hass).async_get_entity_id(
+        "sensor", DOMAIN, f"{entry.entry_id}_query_status"
+    )
+    assert hass.states.get(status_id).attributes["missing_sections"] == ["resources"]
     assert state(hass, entry, "resources_updated") == resource_timestamp
 
     aioclient_mock.clear_requests()
