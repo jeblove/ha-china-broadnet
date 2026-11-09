@@ -225,6 +225,14 @@
       },
       "outside_total_fee": {
         "name": "Current month out-of-plan charges"
+      },
+      "data_pace": {
+        "name": "Monthly data use ahead of pace"
+      }
+    },
+    "button": {
+      "refresh": {
+        "name": "Refresh portal readings"
       }
     }
   }

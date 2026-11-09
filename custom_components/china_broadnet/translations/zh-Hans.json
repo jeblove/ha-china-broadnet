@@ -225,6 +225,14 @@
       },
       "outside_total_fee": {
         "name": "本月套餐外费用合计"
+      },
+      "data_pace": {
+        "name": "本月流量用量超前幅度"
+      }
+    },
+    "button": {
+      "refresh": {
+        "name": "刷新营业厅读数"
       }
     }
   }

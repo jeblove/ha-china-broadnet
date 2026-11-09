@@ -3,6 +3,7 @@
 import logging
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from time import monotonic
 
 from aiohttp import DummyCookieJar
 
@@ -46,13 +47,29 @@ class UsageCoordinator(DataUpdateCoordinator[dict]):
         )
         self.insights = UsageInsights(hass, entry.entry_id) if portal else None
         self.query_status = "pending"
+        self._query_running = False
+        self._next_manual_refresh = 0.0
         self.balance_updated = None
         self.resources_updated = None
         self._cancel_deadline: Callable[[], None] | None = None
         entry.async_on_unload(self._async_cancel_deadline)
 
+    async def async_manual_refresh(self) -> None:
+        """Ignore repeat presses and honor authentication and verification backoff."""
+        if (
+            self._portal is None
+            or self._query_running
+            or self.query_status == "auth_expired"
+            or monotonic() < self._next_manual_refresh
+        ):
+            return
+        self._next_manual_refresh = monotonic() + 60
+        await self.async_refresh()
+
     async def _async_update_data(self) -> dict:
         if self._portal is not None:
+            self._query_running = True
+            self._next_manual_refresh = monotonic() + 60
             try:
                 data = await self._portal.async_read()
             except PortalAuthError as err:
@@ -60,10 +77,13 @@ class UsageCoordinator(DataUpdateCoordinator[dict]):
                 raise ConfigEntryAuthFailed("Refresh the website session") from err
             except PortalChallengeError as err:
                 self.query_status = "verification"
+                self._next_manual_refresh = monotonic() + 3600
                 raise UpdateFailed(str(err), retry_after=3600) from err
             except PortalError as err:
                 self.query_status = "connection_failed"
                 raise UpdateFailed(str(err)) from err
+            finally:
+                self._query_running = False
             self.balance_updated = data["balance_at"]
             if data["resources_ok"]:
                 self.resources_updated = data["resources_at"]

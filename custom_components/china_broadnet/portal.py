@@ -5,6 +5,7 @@ import hashlib
 import json
 import re
 import shlex
+from collections import Counter
 from datetime import UTC, datetime, timedelta
 from urllib.parse import quote
 
@@ -177,6 +178,21 @@ def _month_bounds(local: datetime) -> tuple[datetime, datetime]:
     )
 
 
+def _traffic_pace(traffic: dict, now: datetime) -> dict:
+    if not traffic.get("data_total"):
+        return {}
+    local = now.astimezone(SHANGHAI)
+    start, end = _month_bounds(local)
+    elapsed = 100 * (local - start) / (end - start)
+    used = 100 * traffic["data_used"] / traffic["data_total"]
+    return {
+        "data_pace": round(used - elapsed, 2),
+        "pace_used_percent": round(used, 2),
+        "pace_elapsed_percent": round(elapsed, 2),
+        "pace_month": local.strftime("%Y-%m"),
+    }
+
+
 def _resource_dates(row: dict) -> tuple[datetime, datetime]:
     return tuple(
         datetime.strptime(row[key], "%Y-%m-%d %H:%M:%S").replace(tzinfo=SHANGHAI)
@@ -184,13 +200,18 @@ def _resource_dates(row: dict) -> tuple[datetime, datetime]:
     )
 
 
-def _packages(rows: list, now: datetime) -> dict:
+def _packages(rows: list, now: datetime, rejected: Counter | None = None) -> dict:
+    if rejected is None:
+        rejected = Counter()
     local = now.astimezone(SHANGHAI)
     month, next_month = _month_bounds(local)
     packages = {}
     duplicates = set()
     for row in rows:
-        if not isinstance(row, dict) or row.get("busiType") != "5":
+        if not isinstance(row, dict):
+            rejected["invalid_row"] += 1
+            continue
+        if row.get("busiType") != "5":
             continue
         name = row.get("discntName")
         item = row.get("itemName") or ""
@@ -199,6 +220,7 @@ def _packages(rows: list, now: datetime) -> dict:
             or not 1 <= len(name) <= 255
             or not isinstance(item, str)
         ):
+            rejected["invalid_label"] += 1
             continue
         label = f"{name} {item}"
         category = next(
@@ -214,22 +236,28 @@ def _packages(rows: list, now: datetime) -> dict:
             ),
             None,
         )
-        if category is None or (
-            category == "general"
-            and (row.get("shareResInfo") or row.get("ownerType") not in (None, "0"))
+        if category is None:
+            rejected["unclassified"] += 1
+            continue
+        if category == "general" and (
+            row.get("shareResInfo") or row.get("ownerType") not in (None, "0")
         ):
+            rejected["shared_or_unknown_owner"] += 1
             continue
         try:
             start, end = _resource_dates(row)
             remaining = _integer(row.get("balance"))
             total = _integer(row.get("highFee")) if category == "general" else None
         except KeyError, TypeError, ValueError:
+            rejected["invalid_fields"] += 1
             continue
         if not start <= local < end:
+            rejected["inactive"] += 1
             continue
         if total is not None and (
             remaining > total or not month <= start < end <= next_month
         ):
+            rejected["outside_cycle_or_invalid_total"] += 1
             continue
         identity = (
             name
@@ -257,6 +285,8 @@ def _packages(rows: list, now: datetime) -> dict:
             "remaining": remaining,
             "total": total,
         }
+    if duplicates:
+        rejected["ambiguous_identities"] = len(duplicates)
     return {key: value for key, value in packages.items() if key not in duplicates}
 
 
@@ -654,7 +684,8 @@ class PortalClient:
                 self._plan_name = (
                     plan.strip() if isinstance(plan, str) and len(plan) <= 255 else None
                 )
-        packages = _packages(rows, now) if isinstance(rows, list) else {}
+        rejected = Counter()
+        packages = _packages(rows, now, rejected) if isinstance(rows, list) else {}
         traffic = _traffic(packages, self._packages)
         scope = None
         if traffic:
@@ -681,6 +712,8 @@ class PortalClient:
             "balance": balance,
             **traffic,
             "usage_scope": scope,
+            "package_rejections": dict(rejected),
+            **_traffic_pace(traffic, now),
             "resources_ok": isinstance(rows, list),
             "missing_sections": missing_sections,
             "balance_at": balance_at,

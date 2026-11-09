@@ -295,6 +295,7 @@ async def test_portal_setup_refresh_and_reauth(hass, aioclient_mock, freezer):
     assert aioclient_mock.mock_calls[-1][3]["Cookie"] == entry.data["cookie"]
     assert state(hass, entry, "balance") == STATE_UNAVAILABLE
     assert state(hass, entry, "last_updated") == last_success
+    await entry.runtime_data.async_manual_refresh()
     assert not hass.config_entries.flow.async_progress_by_handler(DOMAIN)
     freezer.tick(timedelta(minutes=8, seconds=1))
     async_fire_time_changed(hass)
@@ -452,6 +453,38 @@ async def test_h5_sms_login_and_reauthentication(hass, aioclient_mock, freezer):
     assert state(hass, entry, "outside_total_fee") == "0.38"
     assert state(hass, entry, "previous_bill") == "28.0"
     assert state(hass, entry, "query_status") == "success"
+    assert float(state(hass, entry, "data_pace")) > 20
+    from custom_components.china_broadnet.diagnostics import (
+        async_get_config_entry_diagnostics,
+    )
+
+    report = await async_get_config_entry_diagnostics(hass, entry)
+    assert report["reading_present"]["balance"]
+    assert report["package_counts"] == {"general": 2, "directed": 1}
+    assert all(
+        secret not in repr(report)
+        for secret in ("19200000000", "h5-session", "27.42", "示例")
+    )
+
+    button = er.async_get(hass).async_get_entity_id(
+        "button", DOMAIN, f"{entry.entry_id}_refresh"
+    )
+    assert button is not None
+    calls = aioclient_mock.call_count
+    await hass.services.async_call(
+        "button", "press", {"entity_id": button}, blocking=True
+    )
+    assert aioclient_mock.call_count == calls
+    freezer.tick(timedelta(seconds=61))
+    await hass.services.async_call(
+        "button", "press", {"entity_id": button}, blocking=True
+    )
+    assert aioclient_mock.call_count == calls + 2
+    await hass.services.async_call(
+        "button", "press", {"entity_id": button}, blocking=True
+    )
+    assert aioclient_mock.call_count == calls + 2
+
     resource_timestamp = state(hass, entry, "resources_updated")
     assert state(hass, entry, "voice_remaining") == "0"
     assert state(hass, entry, "plan_name") == "Example plan"

@@ -8,7 +8,7 @@ from .coordinator import UsageCoordinator
 from .insights import snapshot_store
 from .receiver import async_register_receiver
 
-PLATFORMS = [Platform.SENSOR]
+PLATFORMS = [Platform.SENSOR, Platform.BUTTON]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

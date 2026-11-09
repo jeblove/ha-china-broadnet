@@ -1,12 +1,19 @@
 """Expose normalized usage as native Home Assistant sensors."""
 
+from datetime import UTC, datetime
+
 from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorEntity,
     SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.const import EntityCategory, UnitOfInformation, UnitOfTime
+from homeassistant.const import (
+    PERCENTAGE,
+    EntityCategory,
+    UnitOfInformation,
+    UnitOfTime,
+)
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
@@ -14,7 +21,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN, TRAFFIC_KEYS
 from .coordinator import BroadnetEntry, UsageCoordinator
-from .usage import traffic_gb
+from .usage import SHANGHAI, traffic_gb
 
 SENSORS = (
     SensorEntityDescription(
@@ -43,6 +50,12 @@ SENSORS = (
 
 
 PORTAL_SENSORS = (
+    SensorEntityDescription(
+        key="data_pace",
+        translation_key="data_pace",
+        native_unit_of_measurement=PERCENTAGE,
+        suggested_display_precision=2,
+    ),
     SensorEntityDescription(
         key="monthly_spend",
         translation_key="monthly_spend",
@@ -166,6 +179,10 @@ class BroadnetSensor(CoordinatorEntity[UsageCoordinator], SensorEntity):
         key = self.entity_description.key
         if key in ("query_status", "balance_updated", "resources_updated"):
             return getattr(self.coordinator, key)
+        if key == "data_pace":
+            month = datetime.now(UTC).astimezone(SHANGHAI).strftime("%Y-%m")
+            if self.coordinator.data.get("pace_month") != month:
+                return None
         if key == "monthly_snapshots":
             snapshots = self.coordinator.data.get(key, [])
             return snapshots[0]["month"] if snapshots else None
@@ -185,6 +202,11 @@ class BroadnetSensor(CoordinatorEntity[UsageCoordinator], SensorEntity):
             cycle := self.coordinator.data.get("previous_bill_cycle")
         ):
             return {"billing_cycle": cycle}
+        if key == "data_pace" and self.native_value is not None:
+            return {
+                "used_percent": self.coordinator.data["pace_used_percent"],
+                "elapsed_percent": self.coordinator.data["pace_elapsed_percent"],
+            }
         if key == "monthly_snapshots":
             return {"months": self.coordinator.data.get(key, [])}
         return None
