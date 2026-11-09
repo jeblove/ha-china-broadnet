@@ -284,6 +284,7 @@ class PackageSensor(BroadnetSensor):
                 key=f"package_{key}{suffix}",
                 translation_key=f"package_{kind}",
                 device_class=device_class,
+                entity_registry_enabled_default=kind != "usage_percent",
                 native_unit_of_measurement=unit,
                 state_class=SensorStateClass.MEASUREMENT
                 if kind == "usage_percent"
