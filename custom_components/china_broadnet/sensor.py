@@ -61,6 +61,7 @@ PORTAL_SENSORS = (
         SensorEntityDescription(
             key=key,
             translation_key=key,
+            entity_registry_enabled_default=key.endswith("_usage_percent"),
             native_unit_of_measurement=PERCENTAGE,
             state_class=SensorStateClass.MEASUREMENT,
             suggested_display_precision=2,
@@ -70,6 +71,7 @@ PORTAL_SENSORS = (
     SensorEntityDescription(
         key="estimated_depletion",
         translation_key="estimated_depletion",
+        entity_registry_enabled_default=False,
         device_class=SensorDeviceClass.TIMESTAMP,
     ),
     SensorEntityDescription(
