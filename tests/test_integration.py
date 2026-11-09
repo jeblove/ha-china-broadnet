@@ -494,6 +494,11 @@ async def test_h5_sms_login_and_reauthentication(hass, aioclient_mock, freezer):
         for key, pack in entry.runtime_data.data["packages"].items()
         if pack["category"] == "directed"
     )
+    assert float(state(hass, entry, "general_usage_percent")) == 50
+    assert float(state(hass, entry, "general_remaining_percent")) == 50
+    assert float(state(hass, entry, "directed_usage_percent")) == 50
+    assert float(state(hass, entry, "directed_remaining_percent")) == 50
+    assert float(state(hass, entry, f"package_{package_id}_usage_percent")) == 50
     assert float(state(hass, entry, f"package_{package_id}")) == 0.536870912
     assert (
         state(hass, entry, f"package_{package_id}_expiry")

@@ -20,6 +20,13 @@ def amount(text: str, *, signed: bool = False) -> Decimal:
     return Decimal(value)
 
 
+def usage_percent(total: float | None, remaining: float | None) -> float | None:
+    """Calculate a percentage when the allowance and balance are comparable."""
+    if total is None or remaining is None or not 0 <= remaining <= total or total <= 0:
+        return None
+    return 100 * (total - remaining) / total
+
+
 def traffic_gb(number: str, unit: str, base: int) -> float:
     """Convert SI or IEC input, or a carrier's explicitly selected KB convention."""
     unit = unit.upper()

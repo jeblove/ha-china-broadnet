@@ -218,4 +218,9 @@ class UsageInsights:
                 _recorded_rate, self.hass, entity_id, now, used, scope
             )
         if self._rate:
-            data["remaining_days"] = round(data["data_remaining"] / self._rate, 2)
+            days = data["data_remaining"] / self._rate
+            data["remaining_days"] = round(days, 2)
+            try:
+                data["estimated_depletion"] = now + timedelta(days=days)
+            except OverflowError:
+                pass

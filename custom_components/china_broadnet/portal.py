@@ -15,7 +15,7 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives.serialization import load_der_public_key
 
-from .usage import SHANGHAI, amount
+from .usage import SHANGHAI, amount, usage_percent
 
 ORIGIN = "https://www.10099.com.cn"
 H5_ORIGIN = "https://app.10099.com.cn"
@@ -239,9 +239,11 @@ def _packages(rows: list, now: datetime, rejected: Counter | None = None) -> dic
         if category is None:
             rejected["unclassified"] += 1
             continue
-        if category == "general" and (
-            row.get("shareResInfo") or row.get("ownerType") not in (None, "0")
-        ):
+        shared = bool(row.get("shareResInfo")) or row.get("ownerType") not in (
+            None,
+            "0",
+        )
+        if category == "general" and shared:
             rejected["shared_or_unknown_owner"] += 1
             continue
         try:
@@ -251,10 +253,15 @@ def _packages(rows: list, now: datetime, rejected: Counter | None = None) -> dic
         except KeyError, TypeError, ValueError:
             rejected["invalid_fields"] += 1
             continue
+        if category == "directed" and not shared:
+            try:
+                total = _integer(row.get("highFee"))
+            except ValueError:
+                total = None
         if not start <= local < end:
             rejected["inactive"] += 1
             continue
-        if total is not None and (
+        if category == "general" and (
             remaining > total or not month <= start < end <= next_month
         ):
             rejected["outside_cycle_or_invalid_total"] += 1
@@ -288,6 +295,24 @@ def _packages(rows: list, now: datetime, rejected: Counter | None = None) -> dic
     if duplicates:
         rejected["ambiguous_identities"] = len(duplicates)
     return {key: value for key, value in packages.items() if key not in duplicates}
+
+
+def _directed_usage(packages: dict, now: datetime) -> float | None:
+    month, next_month = _month_bounds(now.astimezone(SHANGHAI))
+    monthly = [
+        pack
+        for pack in packages.values()
+        if pack["category"] == "directed"
+        and month <= pack["start"] < pack["end"] <= next_month
+    ]
+    if len({(pack["start"], pack["end"]) for pack in monthly}) != 1 or any(
+        usage_percent(pack["total"], pack["remaining"]) is None for pack in monthly
+    ):
+        return None
+    return usage_percent(
+        sum(pack["total"] for pack in monthly),
+        sum(pack["remaining"] for pack in monthly),
+    )
 
 
 def _traffic(packages: dict, names: list[str] | None) -> dict[str, float]:
@@ -714,6 +739,8 @@ class PortalClient:
             "usage_scope": scope,
             "package_rejections": dict(rejected),
             **_traffic_pace(traffic, now),
+            "directed_usage_percent": _directed_usage(packages, now),
+            "traffic_month": now.astimezone(SHANGHAI).strftime("%Y-%m"),
             "resources_ok": isinstance(rows, list),
             "missing_sections": missing_sections,
             "balance_at": balance_at,

@@ -21,7 +21,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN, TRAFFIC_KEYS
 from .coordinator import BroadnetEntry, UsageCoordinator
-from .usage import SHANGHAI, traffic_gb
+from .usage import SHANGHAI, traffic_gb, usage_percent
 
 SENSORS = (
     SensorEntityDescription(
@@ -49,7 +49,29 @@ SENSORS = (
 )
 
 
+TRAFFIC_RATIOS = (
+    "general_usage_percent",
+    "general_remaining_percent",
+    "directed_usage_percent",
+    "directed_remaining_percent",
+)
+
 PORTAL_SENSORS = (
+    *(
+        SensorEntityDescription(
+            key=key,
+            translation_key=key,
+            native_unit_of_measurement=PERCENTAGE,
+            state_class=SensorStateClass.MEASUREMENT,
+            suggested_display_precision=2,
+        )
+        for key in TRAFFIC_RATIOS
+    ),
+    SensorEntityDescription(
+        key="estimated_depletion",
+        translation_key="estimated_depletion",
+        device_class=SensorDeviceClass.TIMESTAMP,
+    ),
     SensorEntityDescription(
         key="data_pace",
         translation_key="data_pace",
@@ -147,9 +169,13 @@ async def async_setup_entry(
             if key in added or package["category"] == "general":
                 continue
             added.add(key)
+            if package["category"] == "directed":
+                entities.append(
+                    PackageSensor(entry, key, package["name"], kind="usage_percent")
+                )
             entities.extend(
-                PackageSensor(entry, key, package["name"], expiry=expiry)
-                for expiry in (False, True)
+                PackageSensor(entry, key, package["name"], kind=kind)
+                for kind in ("remaining", "expiry")
             )
         if entities:
             async_add_entities(entities)
@@ -179,6 +205,21 @@ class BroadnetSensor(CoordinatorEntity[UsageCoordinator], SensorEntity):
         key = self.entity_description.key
         if key in ("query_status", "balance_updated", "resources_updated"):
             return getattr(self.coordinator, key)
+        if key in (*TRAFFIC_RATIOS, "estimated_depletion"):
+            data = self.coordinator.data
+            month = datetime.now(UTC).astimezone(SHANGHAI).strftime("%Y-%m")
+            if data.get("traffic_month") != month:
+                return None
+            if key in TRAFFIC_RATIOS:
+                if key.startswith("general_"):
+                    percent = usage_percent(
+                        data.get("data_total"), data.get("data_remaining")
+                    )
+                else:
+                    percent = data.get("directed_usage_percent")
+                if percent is not None and key.endswith("_remaining_percent"):
+                    return 100 - percent
+                return percent
         if key == "data_pace":
             month = datetime.now(UTC).astimezone(SHANGHAI).strftime("%Y-%m")
             if self.coordinator.data.get("pace_month") != month:
@@ -230,24 +271,29 @@ class BroadnetSensor(CoordinatorEntity[UsageCoordinator], SensorEntity):
 class PackageSensor(BroadnetSensor):
     """Expose one classified allowance and its validity window."""
 
-    def __init__(self, entry: BroadnetEntry, key: str, name: str, *, expiry: bool):
+    def __init__(self, entry: BroadnetEntry, key: str, name: str, *, kind: str):
+        device_class, unit, precision = {
+            "remaining": (SensorDeviceClass.DATA_SIZE, UnitOfInformation.GIGABYTES, 3),
+            "expiry": (SensorDeviceClass.TIMESTAMP, None, None),
+            "usage_percent": (None, PERCENTAGE, 2),
+        }[kind]
+        suffix = "" if kind == "remaining" else f"_{kind}"
         super().__init__(
             entry,
             SensorEntityDescription(
-                key=f"package_{key}_expiry" if expiry else f"package_{key}",
-                translation_key="package_expiry" if expiry else "package_remaining",
-                device_class=SensorDeviceClass.TIMESTAMP
-                if expiry
-                else SensorDeviceClass.DATA_SIZE,
-                native_unit_of_measurement=None
-                if expiry
-                else UnitOfInformation.GIGABYTES,
-                suggested_display_precision=None if expiry else 3,
+                key=f"package_{key}{suffix}",
+                translation_key=f"package_{kind}",
+                device_class=device_class,
+                native_unit_of_measurement=unit,
+                state_class=SensorStateClass.MEASUREMENT
+                if kind == "usage_percent"
+                else None,
+                suggested_display_precision=precision,
             ),
         )
         self._package_id = key
         self._attr_translation_placeholders = {"package": name}
-        self._expiry = expiry
+        self._kind = kind
 
     @property
     def _package(self):
@@ -257,8 +303,12 @@ class PackageSensor(BroadnetSensor):
     def native_value(self):
         """Return remaining decimal GB or the expiration timestamp."""
         if (package := self._package) is not None:
-            if self._expiry:
+            if self._kind == "expiry":
                 return package["end"]
+            if self._kind == "usage_percent":
+                if datetime.now(UTC) >= package["end"]:
+                    return None
+                return usage_percent(package["total"], package["remaining"])
             return traffic_gb(str(package["remaining"]), "KiB", 1024)
         return None
 
