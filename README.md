@@ -2,6 +2,8 @@
 
 在 Home Assistant 查看中国广电手机账户的**话费余额、流量余量、使用率和账单**，并用这些读数设置提醒。通过手机号和短信验证码登录后，集成每 **8 分钟**查询一次。
 
+China Broadnet is a Home Assistant integration for China Broadnet mobile subscribers. Sign in with your mobile number and an SMS verification code to track your account balance, mobile data usage, and bills in Home Assistant.
+
 同一个 HA 实例可以添加多个独立广电号码。每张卡用不同的别名分别登录。
 
 ## 安装与登录
