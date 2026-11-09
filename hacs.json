@@ -1,4 +1,5 @@
 {
   "name": "China Broadnet",
+  "country": "CN",
   "homeassistant": "2026.10.0"
 }

@@ -518,8 +518,16 @@ async def test_h5_sms_login_and_reauthentication(hass, aioclient_mock, freezer):
     )
     select = await reconfigure(hass, entry)
     assert select["data_schema"]({})["packages"] == ["示例通用乙", "示例通用甲"]
-    selected = await submit(hass, select, {"packages": ["示例通用甲"]})
+    assert entry.runtime_data.update_interval == timedelta(minutes=8)
+    assert select["data_schema"]({})["refresh_minutes"] == 8
+    invalid = await submit(hass, select, {"refresh_minutes": 5.5})
+    assert invalid["errors"] == {"refresh_minutes": "invalid_refresh_minutes"}
+    selected = await submit(
+        hass, invalid, {"packages": ["示例通用甲"], "refresh_minutes": 10}
+    )
     assert selected["reason"] == "reconfigure_successful"
+    assert entry.data["refresh_minutes"] == 10
+    assert entry.runtime_data.update_interval == timedelta(minutes=10)
     assert float(state(hass, entry, "data_total")) == 1.073741824
 
     duplicate_form = await start_flow(hass, "h5_start")
