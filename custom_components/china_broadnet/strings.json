@@ -98,9 +98,10 @@
         }
       },
       "h5_update": {
-        "title": "Select monthly general data packages",
-        "description": "Confirmed monthly general packages are all selected by default. If no options appear, reopen this screen after a successful usage refresh.",
+        "title": "Automatic queries and general data packages",
+        "description": "Queries run every 8 minutes by default, which can help reduce sign-ins after periods of inactivity. Confirmed monthly general packages are all selected by default. If no options appear, reopen this screen after a successful usage refresh.",
         "data": {
+          "refresh_minutes": "Automatic query interval (minutes)",
           "packages": "Packages included in monthly general data"
         }
       },
@@ -121,12 +122,13 @@
       "reconfigure": {
         "title": "Update website settings",
         "menu_options": {
-          "h5_update": "Select general data packages",
+          "h5_update": "Automatic queries and general data packages",
           "portal_update": "Update website credentials"
         }
       }
     },
     "error": {
+      "invalid_refresh_minutes": "Enter a whole number from 5 to 60.",
       "invalid_amount": "Enter a valid decimal amount.",
       "missing_values": "Enter at least one reading.",
       "invalid_sender": "Enter an exact sender of up to 64 characters.",

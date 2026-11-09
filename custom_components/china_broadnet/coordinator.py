@@ -14,7 +14,7 @@ from homeassistant.helpers.aiohttp_client import async_create_clientsession
 from homeassistant.helpers.event import async_track_point_in_utc_time
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .const import DOMAIN
+from .const import DEFAULT_REFRESH_MINUTES, DOMAIN
 from .insights import UsageInsights
 from .portal import PortalAuthError, PortalChallengeError, PortalClient, PortalError
 from .usage import SHANGHAI, current_values, report_window
@@ -32,7 +32,13 @@ class UsageCoordinator(DataUpdateCoordinator[dict]):
             logging.getLogger(__name__),
             config_entry=entry,
             name=DOMAIN,
-            update_interval=timedelta(minutes=8) if portal else None,
+            update_interval=(
+                timedelta(
+                    minutes=entry.data.get("refresh_minutes", DEFAULT_REFRESH_MINUTES)
+                )
+                if portal
+                else None
+            ),
             always_update=False,
         )
         self.entry = entry

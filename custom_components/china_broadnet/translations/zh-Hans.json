@@ -98,9 +98,10 @@
         }
       },
       "h5_update": {
-        "title": "选择本月通用流量包",
-        "description": "默认全选已确认的本月通用包。若暂无选项，请等待一次成功的流量刷新后再打开。",
+        "title": "自动查询与通用流量包",
+        "description": "默认每 8 分钟查询一次，有助于减少因长时间未访问而需要重新登录的情况。默认全选已确认的本月通用包。若暂无选项，请等待一次成功的流量刷新后再打开。",
         "data": {
+          "refresh_minutes": "自动查询间隔（分钟）",
           "packages": "计入本月通用流量的流量包"
         }
       },
@@ -121,12 +122,13 @@
       "reconfigure": {
         "title": "更新营业厅设置",
         "menu_options": {
-          "h5_update": "选择本月通用流量包",
+          "h5_update": "自动查询与通用流量包",
           "portal_update": "更新网页登录凭据"
         }
       }
     },
     "error": {
+      "invalid_refresh_minutes": "请输入 5 至 60 之间的整数。",
       "invalid_amount": "请输入有效的十进制数值。",
       "missing_values": "请至少录入一项读数。",
       "invalid_sender": "请输入不超过 64 个字符的完整发送人。",

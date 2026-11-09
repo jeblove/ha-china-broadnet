@@ -15,6 +15,9 @@ from homeassistant.helpers.aiohttp_client import (
     async_get_clientsession,
 )
 from homeassistant.helpers.selector import (
+    NumberSelector,
+    NumberSelectorConfig,
+    NumberSelectorMode,
     SelectOptionDict,
     SelectSelector,
     SelectSelectorConfig,
@@ -32,7 +35,13 @@ from .captcha import (
     async_fetch_captcha,
     async_publish_countdown,
 )
-from .const import DOMAIN, TRAFFIC_KEYS
+from .const import (
+    DEFAULT_REFRESH_MINUTES,
+    DOMAIN,
+    MAX_REFRESH_MINUTES,
+    MIN_REFRESH_MINUTES,
+    TRAFFIC_KEYS,
+)
 from .portal import (
     H5_ORIGIN,
     PortalAuthError,
@@ -398,11 +407,10 @@ class ChinaBroadnetConfigFlow(ConfigFlow, domain=DOMAIN):
         return await self._async_sms("sms_update", user_input)
 
     async def async_step_h5_update(self, user_input=None):
-        """Update the selected package without requesting a new login code."""
+        """Update polling and package settings without requesting a login code."""
         entry = self._get_reconfigure_entry()
-        packages = (
-            entry.runtime_data.data.get("packages", {}) if entry.runtime_data else {}
-        )
+        coordinator = getattr(entry, "runtime_data", None)
+        packages = (coordinator.data or {}).get("packages", {}) if coordinator else {}
         names = sorted(
             {
                 pack["name"]
@@ -416,30 +424,43 @@ class ChinaBroadnetConfigFlow(ConfigFlow, domain=DOMAIN):
         defaults = (
             names if selected is None else [name for name in names if name in selected]
         )
-        errors = {}
-        if user_input is not None and names:
-            selection = user_input.get("packages", [])
-            if set(selection) <= set(names):
-                return self.async_update_reload_and_abort(
-                    entry,
-                    data_updates={
-                        "packages": None if set(selection) == set(names) else selection
-                    },
+        interval = entry.data.get("refresh_minutes", DEFAULT_REFRESH_MINUTES)
+        fields = {
+            vol.Required("refresh_minutes", default=interval): NumberSelector(
+                NumberSelectorConfig(
+                    min=MIN_REFRESH_MINUTES,
+                    max=MAX_REFRESH_MINUTES,
+                    mode=NumberSelectorMode.BOX,
                 )
-            errors["base"] = "invalid_package"
+            )
+        }
+        if names:
+            fields[vol.Optional("packages", default=defaults)] = SelectSelector(
+                SelectSelectorConfig(
+                    options=names, multiple=True, mode=SelectSelectorMode.LIST
+                )
+            )
+        errors = {}
+        if user_input is not None:
+            interval = user_input["refresh_minutes"]
+            selection = user_input.get("packages", defaults)
+            if (
+                not MIN_REFRESH_MINUTES <= interval <= MAX_REFRESH_MINUTES
+                or interval != int(interval)
+            ):
+                errors["refresh_minutes"] = "invalid_refresh_minutes"
+            elif names and not set(selection) <= set(names):
+                errors["base"] = "invalid_package"
+            else:
+                updates = {"refresh_minutes": int(interval)}
+                if names:
+                    updates["packages"] = (
+                        None if set(selection) == set(names) else selection
+                    )
+                return self.async_update_reload_and_abort(entry, data_updates=updates)
         return self.async_show_form(
             step_id="h5_update",
-            data_schema=vol.Schema(
-                {
-                    vol.Optional("packages", default=defaults): SelectSelector(
-                        SelectSelectorConfig(
-                            options=names, multiple=True, mode=SelectSelectorMode.LIST
-                        )
-                    )
-                }
-                if names
-                else {}
-            ),
+            data_schema=vol.Schema(fields),
             errors=errors,
         )
 

@@ -1,6 +1,6 @@
 # 中国广电 · China Broadnet
 
-在 Home Assistant 查看中国广电手机账户的**话费余额、流量余量、使用率和账单**，并用这些读数设置提醒。通过手机号和短信验证码登录后，集成每 **8 分钟**查询一次。
+在 Home Assistant 查看中国广电手机账户的**话费余额、流量余量、使用率和账单**，并用这些读数设置提醒。通过手机号和短信验证码登录后，集成默认每 **8 分钟**查询一次，定期查询也能减少因长时间未访问而需要重新登录的情况。
 
 China Broadnet is a Home Assistant integration for China Broadnet mobile subscribers. Sign in with your mobile number and an SMS verification code to track your account balance, mobile data usage, and bills in Home Assistant.
 
@@ -23,6 +23,7 @@ China Broadnet is a Home Assistant integration for China Broadnet mobile subscri
 - **定向、赠送和结转包**。分别展示余量和到期时间。定向汇总使用率要求本月纳入的包有效期一致、总额度可确认。
 - **用量进度**。「本月流量用量超前幅度」是已用占比减去账期进度。例如已用 70%、本月已过 40%，表示超前 30 个百分点。
 - **按需启用的实体**。通用和定向流量剩余率、单个定向包使用率、预计通用流量用尽时间默认关闭。可在 HA 实体列表显示已禁用实体，然后逐个启用。
+- **自动查询间隔**。在集成的「重新配置」中可设为 5 至 60 分钟。间隔越长，营业厅会话越可能因长时间无活动而过期。
 - **手动刷新**。充值后，可在设备的「诊断」区按「刷新营业厅读数」。查询开始后 60 秒内会忽略重复请求，会话失效时可先重新认证。
 
 ## 设置提醒
