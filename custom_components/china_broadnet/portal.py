@@ -5,7 +5,8 @@ import hashlib
 import json
 import re
 import shlex
-from datetime import UTC, datetime
+from collections import Counter
+from datetime import UTC, datetime, timedelta
 from urllib.parse import quote
 
 from aiohttp import ClientError, ClientSession, ClientTimeout
@@ -14,7 +15,7 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives.serialization import load_der_public_key
 
-from .usage import SHANGHAI, amount, traffic_gb
+from .usage import SHANGHAI, amount
 
 ORIGIN = "https://www.10099.com.cn"
 H5_ORIGIN = "https://app.10099.com.cn"
@@ -170,42 +171,220 @@ def _integer(value: object, *, signed: bool = False) -> int:
     return int(value)
 
 
-def _traffic(rows: list, package: str, now: datetime) -> dict[str, float]:
-    if not package or "通用" not in package or re.search(r"定向|结转|赠送", package):
-        return {}
-    matches = [
-        row
-        for row in rows
-        if isinstance(row, dict)
-        and row.get("busiType") == "5"
-        and row.get("discntName") == package
-    ]
-    if len(matches) != 1:
-        return {}
-    row = matches[0]
-    local = now.astimezone(SHANGHAI)
+def _month_bounds(local: datetime) -> tuple[datetime, datetime]:
     month = local.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    next_month = month.replace(
+    return month, month.replace(
         year=month.year + (month.month == 12), month=month.month % 12 + 1
     )
-    try:
-        start = datetime.strptime(row["startTime"], "%Y-%m-%d %H:%M:%S").replace(
-            tzinfo=SHANGHAI
-        )
-        end = datetime.strptime(row["endTime"], "%Y-%m-%d %H:%M:%S").replace(
-            tzinfo=SHANGHAI
-        )
-        total = _integer(row.get("highFee"))
-        remaining = _integer(row.get("balance"))
-    except KeyError, TypeError, ValueError:
+
+
+def _traffic_pace(traffic: dict, now: datetime) -> dict:
+    if not traffic.get("data_total"):
         return {}
-    if not month <= start <= local < end <= next_month or remaining > total:
-        return {}
+    local = now.astimezone(SHANGHAI)
+    start, end = _month_bounds(local)
+    elapsed = 100 * (local - start) / (end - start)
+    used = 100 * traffic["data_used"] / traffic["data_total"]
     return {
-        "data_total": traffic_gb(str(total), "KiB", 1024),
-        "data_used": traffic_gb(str(total - remaining), "KiB", 1024),
-        "data_remaining": traffic_gb(str(remaining), "KiB", 1024),
+        "data_pace": round(used - elapsed, 2),
+        "pace_used_percent": round(used, 2),
+        "pace_elapsed_percent": round(elapsed, 2),
+        "pace_month": local.strftime("%Y-%m"),
     }
+
+
+def _resource_dates(row: dict) -> tuple[datetime, datetime]:
+    return tuple(
+        datetime.strptime(row[key], "%Y-%m-%d %H:%M:%S").replace(tzinfo=SHANGHAI)
+        for key in ("startTime", "endTime")
+    )
+
+
+def _packages(rows: list, now: datetime, rejected: Counter | None = None) -> dict:
+    if rejected is None:
+        rejected = Counter()
+    local = now.astimezone(SHANGHAI)
+    month, next_month = _month_bounds(local)
+    packages = {}
+    duplicates = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            rejected["invalid_row"] += 1
+            continue
+        if row.get("busiType") != "5":
+            continue
+        name = row.get("discntName")
+        item = row.get("itemName") or ""
+        if (
+            not isinstance(name, str)
+            or not 1 <= len(name) <= 255
+            or not isinstance(item, str)
+        ):
+            rejected["invalid_label"] += 1
+            continue
+        label = f"{name} {item}"
+        category = next(
+            (
+                key
+                for marker, key in (
+                    ("结转", "rollover"),
+                    ("定向", "directed"),
+                    ("赠送", "bonus"),
+                    ("通用", "general"),
+                )
+                if marker in label
+            ),
+            None,
+        )
+        if category is None:
+            rejected["unclassified"] += 1
+            continue
+        if category == "general" and (
+            row.get("shareResInfo") or row.get("ownerType") not in (None, "0")
+        ):
+            rejected["shared_or_unknown_owner"] += 1
+            continue
+        try:
+            start, end = _resource_dates(row)
+            remaining = _integer(row.get("balance"))
+            total = _integer(row.get("highFee")) if category == "general" else None
+        except KeyError, TypeError, ValueError:
+            rejected["invalid_fields"] += 1
+            continue
+        if not start <= local < end:
+            rejected["inactive"] += 1
+            continue
+        if total is not None and (
+            remaining > total or not month <= start < end <= next_month
+        ):
+            rejected["outside_cycle_or_invalid_total"] += 1
+            continue
+        identity = (
+            name
+            if category == "general"
+            else json.dumps(
+                [
+                    category,
+                    name,
+                    row.get("discntCode"),
+                    row.get("itemId"),
+                    start.isoformat(),
+                    end.isoformat(),
+                ],
+                ensure_ascii=False,
+            )
+        )
+        key = hashlib.sha256(identity.encode()).hexdigest()[:24]
+        if key in packages:
+            duplicates.add(key)
+        packages[key] = {
+            "name": name,
+            "category": category,
+            "start": start,
+            "end": end,
+            "remaining": remaining,
+            "total": total,
+        }
+    if duplicates:
+        rejected["ambiguous_identities"] = len(duplicates)
+    return {key: value for key, value in packages.items() if key not in duplicates}
+
+
+def _traffic(packages: dict, names: list[str] | None) -> dict[str, float]:
+    selected = [
+        package
+        for package in packages.values()
+        if package["category"] == "general"
+        and (names is None or package["name"] in names)
+    ]
+    if not selected or (
+        names is not None and {pack["name"] for pack in selected} != set(names)
+    ):
+        return {}
+    total = sum(package["total"] for package in selected)
+    remaining = sum(package["remaining"] for package in selected)
+    return {
+        "data_total": total * 1024 / 1_000_000_000,
+        "data_used": (total - remaining) * 1024 / 1_000_000_000,
+        "data_remaining": remaining * 1024 / 1_000_000_000,
+    }
+
+
+def _voice_remaining(rows: list, now: datetime) -> int | None:
+    local = now.astimezone(SHANGHAI)
+    month, next_month = _month_bounds(local)
+    values = []
+    for row in rows:
+        if not isinstance(row, dict) or (
+            row.get("busiType"),
+            row.get("itemTypeCode"),
+            row.get("itemName"),
+        ) != ("1", "2", "语音免费资源"):
+            continue
+        try:
+            start, end = _resource_dates(row)
+            remaining = _integer(row.get("balance"))
+            total = _integer(row.get("highFee"))
+        except KeyError, TypeError, ValueError:
+            continue
+        if month <= start <= local < end <= next_month and remaining <= total:
+            values.append(remaining)
+    return values[0] if len(values) == 1 else None
+
+
+def _monthly_spend(bill: dict, *, h5: bool) -> float | None:
+    try:
+        if not h5:
+            return _integer(bill.get("currealFee"), signed=True) / 100
+        rows = [
+            row.get("value")
+            for group in bill.get("contentList") or []
+            if isinstance(group, dict) and group.get("title") == "当月消费"
+            for row in group.get("list") or []
+            if isinstance(row, dict) and row.get("name") == "消费合计"
+        ]
+        if len(rows) == 1 and isinstance(rows[0], str):
+            return float(amount(rows[0], signed=True))
+    except TypeError, ValueError:
+        pass
+    return None
+
+
+def _outside_fees(resources: dict) -> dict[str, float]:
+    rows = resources.get("userExtResList")
+    if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], dict):
+        return {}
+    cents = {}
+    for key, field in (
+        ("outside_data_fee", "extDiscntFee"),
+        ("outside_voice_fee", "extVoiceFee"),
+        ("outside_sms_fee", "extSmsFee"),
+    ):
+        try:
+            cents[key] = _integer(rows[0].get(field), signed=True)
+        except ValueError:
+            continue
+    if len(cents) == 3:
+        cents["outside_total_fee"] = sum(cents.values())
+    return {key: value / 100 for key, value in cents.items()}
+
+
+def _previous_bill_amount(data: dict, cycle: str) -> float | None:
+    bean = data.get("intfResultBean")
+    if data.get("respCode") != "000000" or not isinstance(bean, dict):
+        return None
+    rows = bean.get("custBillList")
+    if not isinstance(rows, list):
+        return None
+    matches = [
+        row for row in rows if isinstance(row, dict) and row.get("cycleId") == cycle
+    ]
+    if len(matches) != 1:
+        return None
+    try:
+        return _integer(matches[0].get("feeSum"), signed=True) / 100
+    except ValueError:
+        return None
 
 
 def valid_phone(value: object) -> bool:
@@ -277,7 +456,9 @@ async def async_h5_send_sms(http: ClientSession, phone: str) -> None:
         raise PortalCodeError("Website rejected the login SMS request")
 
 
-async def async_h5_login(http: ClientSession, phone: str, code: str) -> str:
+async def async_h5_login(
+    http: ClientSession, phone: str, code: str
+) -> dict[str, str | None]:
     """Exchange a user-entered login code for an account session."""
     result = await _h5_request(
         http,
@@ -294,7 +475,16 @@ async def async_h5_login(http: ClientSession, phone: str, code: str) -> str:
     data = result.get("data")
     if not isinstance(data, dict) or not _valid_session_id(data.get("sessionId")):
         raise PortalError("Invalid website session response")
-    return data["sessionId"]
+    info = data.get("phoneInfo")
+    region = info.get("areaCode") if isinstance(info, dict) else None
+    return {
+        "session": data["sessionId"],
+        "region": region if _valid_region(region) else None,
+    }
+
+
+def _valid_region(region: object) -> bool:
+    return isinstance(region, str) and re.fullmatch(r"[0-9]{1,12}", region) is not None
 
 
 class PortalClient:
@@ -302,9 +492,14 @@ class PortalClient:
 
     def __init__(self, http: ClientSession, settings: dict) -> None:
         self._http = http
-        self._package = settings.get("package", "").strip()
-        if len(self._package) > 128:
-            raise ValueError("Invalid package name")
+        self._plan_name: str | None = None
+        self._plan_checked: datetime | None = None
+        self._region = settings.get("region")
+        self._bill_cycle: str | None = None
+        self._bill_at: datetime | None = None
+        self._previous_bill: float | None = None
+        legacy = settings.get("package", "").strip()
+        self._packages = settings.get("packages", [legacy] if legacy else None)
         self._h5 = settings.get("portal_mode") == "h5"
         if self._h5:
             self.account = settings["account"]
@@ -365,7 +560,7 @@ class PortalClient:
             data = envelope.get("data")
             if envelope.get("status") != "000000" or not isinstance(data, dict):
                 raise PortalError("Invalid website response")
-            if route == "qryBillInfo":
+            if route in ("qryBillInfo", "qryPhonePackInfo"):
                 return data
             if not isinstance(bean := data.get("intfResultBean"), dict):
                 raise PortalError("Invalid traffic response")
@@ -384,7 +579,6 @@ class PortalClient:
             envelope.get("status") != "000000"
             or envelope.get("ok") is not True
             or not isinstance(data, dict)
-            or not isinstance(bean := data.get("intfResultBean"), dict)
         ):
             raise PortalError("Invalid website response")
         # The official endpoint rotates this host-only routing cookie on success.
@@ -403,11 +597,17 @@ class PortalClient:
             header = "; ".join(cookies)
             if len(header) <= 8192:
                 self._headers["Cookie"] = header
+        if route == "qryPhonePackInfo":
+            return data
+        if not isinstance(bean := data.get("intfResultBean"), dict):
+            raise PortalError("Invalid website response")
         return bean
 
     async def async_balance(self) -> float:
         """Validate the session and read the website's displayed account balance."""
-        balance = await self._query("qryBalanceFee")
+        return self._balance(await self._query("qryBalanceFee"))
+
+    def _balance(self, balance: dict) -> float:
         try:
             if self._h5:
                 value = balance.get("balance")
@@ -421,13 +621,111 @@ class PortalClient:
         except ValueError:
             raise PortalError("Invalid balance response") from None
 
+    async def _async_previous_bill(
+        self, now: datetime
+    ) -> tuple[str | None, float | None]:
+        if not self._h5 or not _valid_region(self._region):
+            return None, None
+        month, _ = _month_bounds(now.astimezone(SHANGHAI))
+        cycle = (month - timedelta(days=1)).strftime("%Y%m")
+        if self._bill_cycle != cycle:
+            self._bill_cycle = cycle
+            self._previous_bill = self._bill_at = None
+        if self._previous_bill is None and (
+            self._bill_at is None or now - self._bill_at >= timedelta(hours=6)
+        ):
+            self._bill_at = now
+            try:
+                result = await _h5_request(
+                    self._http,
+                    "busi/onlineQueryCustBillMM",
+                    {
+                        "accessNum": self.account,
+                        "sessionId": self._session_id,
+                        "channelType": "1",
+                        "subscriberType": "00",
+                        "regionId": self._region,
+                        "startCycleId": cycle,
+                        "endCycleId": cycle,
+                    },
+                    session=self._session_id,
+                )
+            except PortalError:
+                return cycle, None
+            data = result.get("data")
+            if result.get("status") == "000000" and isinstance(data, dict):
+                self._previous_bill = _previous_bill_amount(data, cycle)
+        return cycle, self._previous_bill
+
     async def async_read(self) -> dict:
-        """Return balance and one explicitly confirmed monthly general package."""
-        balance = await self.async_balance()
-        traffic = {}
-        if self._package:
+        """Return balance, selected general usage and individually classified packs."""
+        bill = await self._query("qryBalanceFee")
+        balance = self._balance(bill)
+        balance_at = datetime.now(UTC)
+        resources = {}
+        try:
             resources = await self._query("qryUserRes")
-            if not isinstance(rows := resources.get("userResList"), list):
-                raise PortalError("Invalid traffic response")
-            traffic = _traffic(rows, self._package, datetime.now(UTC))
-        return {"balance": balance, **traffic, "last_updated": datetime.now(UTC)}
+            rows = resources.get("userResList")
+        except PortalAuthError:
+            raise
+        except PortalError:
+            rows = None
+        now = datetime.now(UTC)
+        cycle, previous_bill = await self._async_previous_bill(now)
+        if self._plan_checked is None or now - self._plan_checked >= timedelta(hours=6):
+            self._plan_checked = now
+            try:
+                plan = (await self._query("qryPhonePackInfo")).get("packName")
+            except PortalAuthError:
+                raise
+            except PortalError:
+                self._plan_name = None
+            else:
+                self._plan_name = (
+                    plan.strip() if isinstance(plan, str) and len(plan) <= 255 else None
+                )
+        rejected = Counter()
+        packages = _packages(rows, now, rejected) if isinstance(rows, list) else {}
+        traffic = _traffic(packages, self._packages)
+        scope = None
+        if traffic:
+            selected = [
+                (
+                    pack["name"],
+                    pack["start"].isoformat(),
+                    pack["end"].isoformat(),
+                    pack["total"],
+                )
+                for pack in packages.values()
+                if pack["category"] == "general"
+                and (self._packages is None or pack["name"] in self._packages)
+            ]
+            scope = hashlib.sha256(json.dumps(sorted(selected)).encode()).hexdigest()
+        missing_sections = []
+        if not isinstance(rows, list):
+            missing_sections.append("resources")
+        elif self._packages and not traffic:
+            missing_sections.append("selected_packages")
+        if not self._plan_name:
+            missing_sections.append("plan")
+        return {
+            "balance": balance,
+            **traffic,
+            "usage_scope": scope,
+            "package_rejections": dict(rejected),
+            **_traffic_pace(traffic, now),
+            "resources_ok": isinstance(rows, list),
+            "missing_sections": missing_sections,
+            "balance_at": balance_at,
+            "resources_at": now if isinstance(rows, list) else None,
+            **_outside_fees(resources),
+            "previous_bill": previous_bill,
+            "previous_bill_cycle": cycle,
+            "packages": packages,
+            "monthly_spend": _monthly_spend(bill, h5=self._h5),
+            "plan_name": self._plan_name or None,
+            "voice_remaining": _voice_remaining(rows, now)
+            if isinstance(rows, list)
+            else None,
+            "last_updated": datetime.now(UTC),
+        }

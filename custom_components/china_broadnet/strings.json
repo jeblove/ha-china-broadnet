@@ -57,29 +57,26 @@
       },
       "portal": {
         "title": "Connect the official website session",
-        "description": "Import credentials from your signed-in account tab. Leave the package name blank for balance only. See the integration documentation for instructions.",
+        "description": "Import credentials from your signed-in account tab. See the integration documentation for instructions.",
         "data": {
           "name": "Account alias",
           "session": "Exported website tab session",
-          "package": "Exact monthly general package name (optional)",
           "curl": "Paste the balance request as cURL (bash)"
         }
       },
       "portal_update": {
         "title": "Update the website settings",
-        "description": "Import credentials from your signed-in account tab. Leave the package name blank for balance only. See the integration documentation for instructions.",
+        "description": "Import credentials from your signed-in account tab. See the integration documentation for instructions.",
         "data": {
           "session": "Exported website tab session",
-          "package": "Exact monthly general package name (optional)",
           "curl": "Paste the balance request as cURL (bash)"
         }
       },
       "reauth_confirm": {
         "title": "Renew the website session",
-        "description": "Import credentials from your signed-in account tab. Leave the package name blank for balance only. See the integration documentation for instructions.",
+        "description": "Import credentials from your signed-in account tab. See the integration documentation for instructions.",
         "data": {
           "session": "Exported website tab session",
-          "package": "Exact monthly general package name (optional)",
           "curl": "Paste the balance request as cURL (bash)"
         }
       },
@@ -89,23 +86,22 @@
         "data": {
           "name": "Account alias",
           "account": "Mobile number",
-          "package": "Exact monthly general package name (optional)",
           "consent": "I agree to the carrier’s terms and want to request an SMS code"
         }
       },
       "h5_code": {
         "title": "Verify the login SMS",
-        "description": "Enter the code from China Broadnet. If the code has expired, request another after at least 60 seconds. If login succeeded but the balance check failed, submit again to retry the query.",
+        "description": "China Broadnet accepted the SMS request. The code is valid for five minutes. If you have not received the SMS, you can request another after 60 seconds.\n\n{timer}",
         "data": {
           "code": "SMS verification code",
           "resend": "Request a new code"
         }
       },
       "h5_update": {
-        "title": "Update the general data package",
-        "description": "Leave this field blank to show the balance only. This change does not send a login SMS.",
+        "title": "Select monthly general data packages",
+        "description": "Confirmed monthly general packages are all selected by default. If no options appear, reopen this screen after a successful usage refresh.",
         "data": {
-          "package": "Exact monthly general package name (optional)"
+          "packages": "Packages included in monthly general data"
         }
       },
       "desktop_start": {
@@ -114,7 +110,6 @@
         "data": {
           "name": "Account alias",
           "account": "Mobile number",
-          "package": "Exact monthly general package name (optional)",
           "consent": "I agree to the carrier’s terms and want to request an SMS code",
           "image_code": "Image CAPTCHA"
         }
@@ -122,6 +117,13 @@
       "desktop_retry": {
         "title": "Image CAPTCHA unavailable",
         "description": "Submit to retry loading the image, or close this flow and choose phone and SMS login. This step does not send an SMS."
+      },
+      "reconfigure": {
+        "title": "Update website settings",
+        "menu_options": {
+          "h5_update": "Select general data packages",
+          "portal_update": "Update website credentials"
+        }
       }
     },
     "error": {
@@ -143,7 +145,8 @@
       "invalid_sms_code": "Enter a valid SMS code. Check whether it has expired.",
       "captcha_challenge": "China Broadnet returned a browser verification page instead of the CAPTCHA image.",
       "invalid_image_code": "Enter the characters shown in the image.",
-      "invalid_desktop_codes": "China Broadnet rejected the CAPTCHA or SMS code. Restart this backup login flow if the image code has expired."
+      "invalid_desktop_codes": "China Broadnet rejected the CAPTCHA or SMS code. Restart this backup login flow if the image code has expired.",
+      "sms_expired": "The code has expired. Request a new SMS."
     },
     "abort": {
       "already_configured": "This account alias is already configured.",
@@ -169,6 +172,67 @@
       },
       "last_updated": {
         "name": "Last successful update"
+      },
+      "package_remaining": {
+        "name": "{package} remaining"
+      },
+      "package_expiry": {
+        "name": "{package} expiry"
+      },
+      "monthly_spend": {
+        "name": "Current month spending"
+      },
+      "plan_name": {
+        "name": "Plan name"
+      },
+      "voice_remaining": {
+        "name": "Monthly voice remaining"
+      },
+      "query_status": {
+        "name": "Query status",
+        "state": {
+          "pending": "Pending",
+          "success": "Successful",
+          "partial": "Partial data",
+          "auth_expired": "Session expired",
+          "verification": "Browser verification required",
+          "connection_failed": "Query failed"
+        }
+      },
+      "balance_updated": {
+        "name": "Last successful balance query"
+      },
+      "resources_updated": {
+        "name": "Last successful resource query"
+      },
+      "monthly_snapshots": {
+        "name": "Monthly usage archive"
+      },
+      "remaining_days": {
+        "name": "Estimated days of data remaining"
+      },
+      "outside_data_fee": {
+        "name": "Current month out-of-plan data charges"
+      },
+      "previous_bill": {
+        "name": "Previous month billed charges"
+      },
+      "outside_voice_fee": {
+        "name": "Current month out-of-plan voice charges"
+      },
+      "outside_sms_fee": {
+        "name": "Current month out-of-plan SMS charges"
+      },
+      "outside_total_fee": {
+        "name": "Current month out-of-plan charges"
+      },
+      "data_pace": {
+        "name": "Monthly data use ahead of pace"
+      }
+    },
+    "button": {
+      "refresh": {
+        "name": "Refresh portal readings"
       }
     }
   }

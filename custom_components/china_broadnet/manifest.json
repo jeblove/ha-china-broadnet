@@ -1,6 +1,9 @@
 {
   "domain": "china_broadnet",
   "name": "China Broadnet",
+  "after_dependencies": [
+    "recorder"
+  ],
   "codeowners": [
     "@jeblove"
   ],

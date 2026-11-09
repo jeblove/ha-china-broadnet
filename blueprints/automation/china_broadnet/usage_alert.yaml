@@ -1,0 +1,100 @@
+blueprint:
+  name: 中国广电用量提醒
+  description: >
+    为余额、流量余量、流量进度或流量包到期建立一条提醒。
+    每条自动化使用自己的输入布尔值助手记录是否已提醒。
+  domain: automation
+  input:
+    watched_entity:
+      name: 要监测的传感器
+      selector:
+        entity:
+          filter:
+            - domain: sensor
+    alert_kind:
+      name: 提醒类型
+      selector:
+        select:
+          options:
+            - label: 低余额或低流量余量
+              value: low
+            - label: 流量用量超前
+              value: ahead
+            - label: 流量包即将到期
+              value: expiry
+    threshold:
+      name: 阈值
+      description: 余额填元，流量余量填 GB，进度填百分点，到期提醒填提前小时数。
+      default: 20
+      selector:
+        number:
+          min: 0
+          max: 10000
+          step: 0.1
+          mode: box
+    notified:
+      name: 已提醒状态助手
+      description: 为此提醒创建独立的输入布尔值助手。它会保留已提醒状态。
+      selector:
+        entity:
+          filter:
+            - domain: input_boolean
+    quiet_start:
+      name: 静默开始
+      description: 起止时间相同时关闭静默。
+      default: "00:00:00"
+      selector:
+        time:
+    quiet_end:
+      name: 静默结束
+      default: "00:00:00"
+      selector:
+        time:
+    notify_action:
+      name: 通知动作
+      description: 可使用 alert_entity、alert_state 和 alert_kind 作为消息模板变量。
+      selector:
+        action:
+
+mode: single
+max_exceeded: silent
+triggers:
+  - trigger: state
+    entity_id: !input watched_entity
+    to:
+  - trigger: time_pattern
+    minutes: "/1"
+variables:
+  alert_entity: !input watched_entity
+  alert_kind: !input alert_kind
+  threshold: !input threshold
+  notified: !input notified
+  quiet_start: !input quiet_start
+  quiet_end: !input quiet_end
+  alert_state: "{{ states(alert_entity) }}"
+  in_alert: >-
+    {% if alert_kind == 'expiry' %}
+      {% set expires = as_timestamp(alert_state, none) %}
+      {{ none if expires is none else 0 < expires - as_timestamp(now()) <= threshold * 3600 }}
+    {% elif is_number(alert_state) %}
+      {{ (alert_state | float <= threshold) if alert_kind == 'low' else (alert_state | float >= threshold) }}
+    {% else %}
+      {{ none }}
+    {% endif %}
+  quiet: >-
+    {% set current = now().strftime('%H:%M:%S') %}
+    {{ quiet_start <= current < quiet_end if quiet_start <= quiet_end
+       else current >= quiet_start or current < quiet_end }}
+actions:
+  - choose:
+      - conditions: "{{ in_alert is sameas false and is_state(notified, 'on') }}"
+        sequence:
+          - action: input_boolean.turn_off
+            target:
+              entity_id: !input notified
+      - conditions: "{{ in_alert is sameas true and not quiet and is_state(notified, 'off') }}"
+        sequence:
+          - sequence: !input notify_action
+          - action: input_boolean.turn_on
+            target:
+              entity_id: !input notified

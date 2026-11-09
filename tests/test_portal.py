@@ -7,6 +7,7 @@ import pytest
 from custom_components.china_broadnet.portal import (
     ORIGIN,
     PortalCurlError,
+    _packages,
     _traffic,
     parse_portal_curl,
 )
@@ -24,7 +25,7 @@ PLAN = {
 
 def test_select_confirmed_monthly_general_package():
     directed = {**PLAN, "discntName": "示例定向赠送流量", "highFee": "10485760"}
-    assert _traffic([directed, PLAN], PLAN["discntName"], NOW) == pytest.approx(
+    assert _traffic(_packages([directed, PLAN], NOW), None) == pytest.approx(
         {
             "data_total": 1.073741824,
             "data_used": 0.536870912,
@@ -45,7 +46,7 @@ def test_select_confirmed_monthly_general_package():
     ],
 )
 def test_skip_ambiguous_or_invalid_resource(rows):
-    assert _traffic(rows, PLAN["discntName"], NOW) == {}
+    assert _traffic(_packages(rows, NOW), [PLAN["discntName"]]) == {}
 
 
 BALANCE_URL = f"{ORIGIN}/contact-web/api/busi/qryBalanceFee"
@@ -83,3 +84,23 @@ def test_import_browser_curl(url_option):
 def test_reject_invalid_curl(command):
     with pytest.raises(PortalCurlError, match="Expected a copied balance request"):
         parse_portal_curl(command)
+
+
+def test_multiple_general_and_separate_expirations():
+    second = {**PLAN, "discntName": "另一通用流量"}
+    bonus = {**PLAN, "discntName": "赠送通用流量"}
+    later = {**bonus, "endTime": "2026-12-31 00:00:00"}
+    rollover = {**PLAN, "discntName": "上月结转", "startTime": "2026-10-01 00:00:00"}
+    packages = _packages([PLAN, second, bonus, later, rollover], NOW)
+    assert sorted(pack["category"] for pack in packages.values()) == [
+        "bonus",
+        "bonus",
+        "general",
+        "general",
+        "rollover",
+    ]
+    assert _traffic(packages, None)["data_total"] == pytest.approx(2.147483648)
+    assert _traffic(packages, [second["discntName"]])["data_total"] == pytest.approx(
+        1.073741824
+    )
+    assert _traffic(packages, []) == {}

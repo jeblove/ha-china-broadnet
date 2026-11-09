@@ -40,6 +40,14 @@
 
 用授权账号的余额和一个明确标为通用的包交叉核对，换算后的余额以及网页显示的流量总量、已用量和剩余量全部一致。该账号的通用、定向赠送和结转条目共用同一流量类型码。需要结合包名、归属和起止时间，才能判断某条记录是否为本月套餐通用流量。
 
+### 补充账户指标
+
+授权测试卡实测移动网页 `qryBillInfo` 的「当月消费 → 消费合计」为元，桌面官网把 `qryBalanceFee.intfResultBean.currealFee` 除以 100 后显示为元。移动网页 `qryPhonePackInfo.data.packName` 与网页套餐名一致。`qryUserRes` 中的「语音免费资源」条目具有 `busiType=1`、`itemTypeCode=2`，其余量直接以分钟返回。集成只显示有效期在当月、且匹配唯一的语音余量。实测登录短信注明验证码五分钟内有效。[官方移动网页](https://app.10099.com.cn/h5-app/)
+
+月度账单页面通过 `onlineQueryCustBillMM` 查询指定账期。测试卡返回上月 `custBillList`，其 `cycleId` 与请求一致。页面将 `feeSum` 从分转换为元，这是折后费用合计。套餐外流量、语音和短信分别使用 `qryUserRes.userExtResList` 的 `extDiscntFee`、`extVoiceFee` 和 `extSmsFee`。官网将三项按分转元，测试卡三项均明确返回零。[官方月度账单脚本](https://app.10099.com.cn/h5-app/js/84.1793700139404.js)
+
+测试卡没有可观察的主副卡和共享池。当前只汇总可以确认的个人通用资源，含共享标记或未知归属的条目暂不计入通用流量。
+
 ### 直接 HTTP 调用
 
 官方网页的请求预处理给相关 POST 请求加入时间戳，生成 `Access` 校验头，并用公开的请求公钥封装为 `data`。网页标签页本地存储与网络请求使用不同的封装。首次直连得到网页挑战 HTML。随后核对实际请求格式，并使用已登录标签页的会话、Cookie 和 User-Agent，原生 HTTP 成功读取余额和套餐资源。对照请求省略 Cookie 时重新收到挑战。
