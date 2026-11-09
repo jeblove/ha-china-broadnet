@@ -228,6 +228,24 @@
       },
       "data_pace": {
         "name": "本月流量用量超前幅度"
+      },
+      "general_usage_percent": {
+        "name": "本月通用流量使用率"
+      },
+      "general_remaining_percent": {
+        "name": "本月通用流量剩余率"
+      },
+      "directed_usage_percent": {
+        "name": "本月定向流量使用率"
+      },
+      "directed_remaining_percent": {
+        "name": "本月定向流量剩余率"
+      },
+      "package_usage_percent": {
+        "name": "{package}使用率"
+      },
+      "estimated_depletion": {
+        "name": "预计通用流量用尽时间"
       }
     },
     "button": {

@@ -7,6 +7,7 @@ import pytest
 from custom_components.china_broadnet.portal import (
     ORIGIN,
     PortalCurlError,
+    _directed_usage,
     _packages,
     _traffic,
     parse_portal_curl,
@@ -104,3 +105,22 @@ def test_multiple_general_and_separate_expirations():
         1.073741824
     )
     assert _traffic(packages, []) == {}
+
+
+def test_directed_ratios_only_aggregate_matching_validity():
+    pack = {**PLAN, "discntName": "定向甲", "highFee": "100", "balance": "40"}
+    second = {**pack, "discntName": "定向乙", "highFee": "300", "balance": "180"}
+    assert _directed_usage(_packages([pack], NOW), NOW) == 60
+    assert _directed_usage(_packages([pack, second], NOW), NOW) == 45
+    for changed in (
+        {**second, "startTime": "2026-11-05 00:00:00"},
+        {**second, "highFee": None},
+        {**second, "highFee": "0"},
+        {**second, "balance": "301"},
+        {**second, "ownerType": "unknown"},
+    ):
+        packages = _packages([pack, changed], NOW)
+        assert len(packages) == 2
+        assert _directed_usage(packages, NOW) is None
+    cross_month = {**second, "endTime": "2027-01-01 00:00:00"}
+    assert _directed_usage(_packages([pack, cross_month], NOW), NOW) == 60

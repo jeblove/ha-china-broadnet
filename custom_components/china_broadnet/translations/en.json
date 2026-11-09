@@ -228,6 +228,24 @@
       },
       "data_pace": {
         "name": "Monthly data use ahead of pace"
+      },
+      "general_usage_percent": {
+        "name": "Monthly general data usage percentage"
+      },
+      "general_remaining_percent": {
+        "name": "Monthly general data remaining percentage"
+      },
+      "directed_usage_percent": {
+        "name": "Monthly directed data usage percentage"
+      },
+      "directed_remaining_percent": {
+        "name": "Monthly directed data remaining percentage"
+      },
+      "package_usage_percent": {
+        "name": "{package} usage percentage"
+      },
+      "estimated_depletion": {
+        "name": "Estimated data depletion date"
       }
     },
     "button": {

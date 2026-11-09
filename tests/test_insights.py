@@ -106,3 +106,10 @@ async def test_estimate_reads_real_recorder_history(recorder_mock, hass, freezer
         )
         == 2
     )
+    insights = UsageInsights(hass, "synthetic")
+    insights._rate = 2
+    insights._rate_at = NOW
+    data = {"data_remaining": 5}
+    await insights._async_estimate(data, NOW, 14, "one")
+    assert data["remaining_days"] == 2.5
+    assert data["estimated_depletion"] == NOW + timedelta(days=2.5)

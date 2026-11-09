@@ -494,6 +494,23 @@ async def test_h5_sms_login_and_reauthentication(hass, aioclient_mock, freezer):
         for key, pack in entry.runtime_data.data["packages"].items()
         if pack["category"] == "directed"
     )
+    assert float(state(hass, entry, "general_usage_percent")) == 50
+    assert float(state(hass, entry, "directed_usage_percent")) == 50
+    registry = er.async_get(hass)
+    for key in (
+        "general_remaining_percent",
+        "directed_remaining_percent",
+        "estimated_depletion",
+        f"package_{package_id}_usage_percent",
+    ):
+        optional_id = registry.async_get_entity_id(
+            "sensor", DOMAIN, f"{entry.entry_id}_{key}"
+        )
+        assert (
+            registry.async_get(optional_id).disabled_by
+            is er.RegistryEntryDisabler.INTEGRATION
+        )
+        assert hass.states.get(optional_id) is None
     assert float(state(hass, entry, f"package_{package_id}")) == 0.536870912
     assert (
         state(hass, entry, f"package_{package_id}_expiry")
