@@ -57,12 +57,17 @@ jobs:
         run: |
           core=$(mktemp -d)
           trap 'rm -rf "$core"' EXIT
-          curl --fail --retry 4 --retry-delay 5 --retry-max-time 180 \
-            --retry-all-errors --connect-timeout 20 --max-time 120 \
-            --silent --show-error --location \
-            https://codeload.github.com/home-assistant/core/tar.gz/refs/tags/2026.10.2 \
-            --output "$core/source.tar.gz"
-          tar -xzf "$core/source.tar.gz" --strip-components=1 -C "$core"
+          core_archive="$RUNNER_TOOL_CACHE/china-broadnet-core-2026.10.2.tar.gz"
+          if ! tar -tzf "$core_archive" >/dev/null 2>&1; then
+            curl --fail --retry 4 --retry-delay 5 --retry-max-time 900 \
+              --retry-all-errors --connect-timeout 20 --max-time 600 \
+              --silent --show-error --location \
+              https://codeload.github.com/home-assistant/core/tar.gz/refs/tags/2026.10.2 \
+              --output "$core/source.tar.gz"
+            tar -tzf "$core/source.tar.gz" >/dev/null
+            mv "$core/source.tar.gz" "$core_archive"
+          fi
+          tar -xzf "$core_archive" --strip-components=1 -C "$core"
           # These optional audio processors require a C++ compiler and are unused by Hassfest.
           grep -vE '^(pymicro-vad|pyspeex-noise)==' "$core/requirements.txt" \
             > "$core/hassfest-requirements.txt"
