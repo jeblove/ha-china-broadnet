@@ -747,7 +747,7 @@ async def test_portal_repairs_survive_outage_and_clear_on_reselection(
     assert issue is not None
     assert issue.translation_key == "selected_packages"
     assert state(hass, entry, "query_status") == "partial"
-    assert float(state(hass, entry, "data_total")) == 1.073741824
+    assert state(hass, entry, "data_total") == STATE_UNAVAILABLE
 
     aioclient_mock.clear_requests()
     aioclient_mock.post(
@@ -894,7 +894,7 @@ async def test_portal_diagnostics_and_recovery(hass, aioclient_mock, freezer):
     assert 2999 <= report["verification_retry_after_seconds"] <= 3000
 
     aioclient_mock.clear_requests()
-    aioclient_mock.post(url, status=503)
+    aioclient_mock.post(url, status=503, headers={"content-type": "application/json"})
     freezer.tick(timedelta(minutes=50, seconds=1))
     async_fire_time_changed(hass)
     await hass.async_block_till_done()
@@ -978,7 +978,7 @@ async def test_portal_month_rollover_and_saved_entry_startup(
     )
 
     aioclient_mock.clear_requests()
-    aioclient_mock.post(url, status=503)
+    aioclient_mock.post(url, status=503, headers={"content-type": "application/json"})
     freezer.move_to("2026-11-30 16:00:01")
     async_fire_time_changed(hass)
     await hass.async_block_till_done()
