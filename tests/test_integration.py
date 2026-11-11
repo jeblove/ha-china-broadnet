@@ -897,7 +897,8 @@ async def test_portal_diagnostics_and_recovery(hass, aioclient_mock, freezer):
     aioclient_mock.post(url, status=503, headers={"content-type": "application/json"})
     freezer.tick(timedelta(minutes=50, seconds=1))
     async_fire_time_changed(hass)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert aioclient_mock.call_count == 1
     assert state(hass, entry, "query_status") == "connection_failed"
     assert (
         state(hass, entry, "last_updated")
@@ -913,7 +914,7 @@ async def test_portal_diagnostics_and_recovery(hass, aioclient_mock, freezer):
     mock_resources(aioclient_mock, url)
     freezer.tick(timedelta(minutes=15, seconds=1))
     async_fire_time_changed(hass)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     assert state(hass, entry, "query_status") == "success"
     assert state(hass, entry, "balance") == "0.0"
     recovered = await async_get_config_entry_diagnostics(hass, entry)
