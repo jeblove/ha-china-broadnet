@@ -561,6 +561,8 @@ async def test_h5_sms_login_and_reauthentication(hass, aioclient_mock, freezer):
     async_fire_time_changed(hass)
     await hass.async_block_till_done()
     assert state(hass, entry, "monthly_snapshots") == "2026-11"
+    assert state(hass, entry, "data_total") == STATE_UNAVAILABLE
+    assert state(hass, entry, "data_used") == STATE_UNAVAILABLE
     assert state(hass, entry, "query_status") == "auth_expired"
     assert aioclient_mock.call_count == 1
 
@@ -775,13 +777,17 @@ async def test_portal_repairs_survive_outage_and_clear_on_reselection(
     assert entry.runtime_data.update_interval == timedelta(minutes=15)
     entity_ids = {
         entity.entity_id
-        for entity in er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id)
+        for entity in er.async_entries_for_config_entry(
+            er.async_get(hass), entry.entry_id
+        )
     }
     assert await hass.config_entries.async_reload(entry.entry_id)
     await hass.async_block_till_done()
     assert entity_ids == {
         entity.entity_id
-        for entity in er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id)
+        for entity in er.async_entries_for_config_entry(
+            er.async_get(hass), entry.entry_id
+        )
     }
     assert all("/login/" not in str(call[1]) for call in aioclient_mock.mock_calls)
 
@@ -824,7 +830,8 @@ async def test_portal_diagnostics_and_recovery(hass, aioclient_mock, freezer):
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     first = await async_get_config_entry_diagnostics(hass, entry)
-    assert first["integration_version"] == "0.1.3"
+    assert isinstance(first["integration_version"], str)
+    assert first["integration_version"]
     assert first["refresh_interval_minutes"] == 15
     assert first["verification_retry_after_seconds"] == 0
     assert first["last_successful_queries"]["balance"] is not None
@@ -835,11 +842,13 @@ async def test_portal_diagnostics_and_recovery(hass, aioclient_mock, freezer):
     freezer.tick(timedelta(minutes=1))
     await entry.runtime_data.async_refresh()
     partial = await async_get_config_entry_diagnostics(hass, entry)
-    assert partial["last_successful_queries"]["resources"] == (
-        first["last_successful_queries"]["resources"]
+    assert (
+        partial["last_successful_queries"]["resources"]
+        == (first["last_successful_queries"]["resources"])
     )
-    assert partial["last_successful_queries"]["balance"] != (
-        first["last_successful_queries"]["balance"]
+    assert (
+        partial["last_successful_queries"]["balance"]
+        != (first["last_successful_queries"]["balance"])
     )
 
     aioclient_mock.clear_requests()
@@ -866,7 +875,10 @@ async def test_portal_diagnostics_and_recovery(hass, aioclient_mock, freezer):
     async_fire_time_changed(hass)
     await hass.async_block_till_done()
     assert state(hass, entry, "query_status") == "connection_failed"
-    assert state(hass, entry, "last_updated") == partial["last_successful_queries"]["overall"]
+    assert (
+        state(hass, entry, "last_updated")
+        == partial["last_successful_queries"]["overall"]
+    )
 
     aioclient_mock.clear_requests()
     aioclient_mock.post(url, json={"status": "000000", "data": {"balance": "0"}})
@@ -878,8 +890,9 @@ async def test_portal_diagnostics_and_recovery(hass, aioclient_mock, freezer):
     assert state(hass, entry, "balance") == "0.0"
     recovered = await async_get_config_entry_diagnostics(hass, entry)
     assert recovered["verification_retry_after_seconds"] == 0
-    assert recovered["last_successful_queries"]["resources"] != (
-        first["last_successful_queries"]["resources"]
+    assert (
+        recovered["last_successful_queries"]["resources"]
+        != (first["last_successful_queries"]["resources"])
     )
     assert not hass.config_entries.flow.async_progress_by_handler(DOMAIN)
 
@@ -904,7 +917,7 @@ async def test_portal_month_rollover_and_saved_entry_startup(
         "discntName": "示例通用旧包",
     }
     aioclient_mock.post(url, json={"status": "000000", "data": {"balance": "5"}})
-    mock_resources(aioclient_mock, url, [row])
+    mock_resources(aioclient_mock, url, [row, {**row, "discntName": "示例定向赠送"}])
     entry = MockConfigEntry(
         domain=DOMAIN,
         title="Saved account",
@@ -921,6 +934,12 @@ async def test_portal_month_rollover_and_saved_entry_startup(
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     prior_used = float(state(hass, entry, "data_used"))
+    directed_id = next(
+        key
+        for key, pack in entry.runtime_data.data["packages"].items()
+        if pack["category"] == "directed"
+    )
+    assert float(state(hass, entry, f"package_{directed_id}")) > 0
     old_coordinator = entry.runtime_data
     snapshot_entity = er.async_get(hass).async_get_entity_id(
         "sensor", DOMAIN, f"{entry.entry_id}_monthly_snapshots"
@@ -932,6 +951,9 @@ async def test_portal_month_rollover_and_saved_entry_startup(
     async_fire_time_changed(hass)
     await hass.async_block_till_done()
     assert state(hass, entry, "monthly_snapshots") == "2026-11"
+    assert state(hass, entry, "data_total") == STATE_UNAVAILABLE
+    assert state(hass, entry, "data_used") == STATE_UNAVAILABLE
+    assert state(hass, entry, f"package_{directed_id}") == STATE_UNAVAILABLE
     await entry.runtime_data.async_refresh()
     assert state(hass, entry, "balance") == STATE_UNAVAILABLE
 
