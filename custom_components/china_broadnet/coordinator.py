@@ -69,6 +69,14 @@ class UsageCoordinator(DataUpdateCoordinator[dict]):
             return 0
         return max(0, math.ceil(self._next_manual_refresh - monotonic()))
 
+    @callback
+    def _async_set_failure_status(self, status: str) -> None:
+        """Publish changed diagnostics when consecutive failures skip HA updates."""
+        changed = self.query_status != status
+        self.query_status = status
+        if changed and not self.last_update_success:
+            self.async_update_listeners()
+
     async def async_manual_refresh(self) -> None:
         """Ignore repeat presses and honor authentication and verification backoff."""
         if (
@@ -88,14 +96,14 @@ class UsageCoordinator(DataUpdateCoordinator[dict]):
             try:
                 data = await self._portal.async_read()
             except PortalAuthError as err:
-                self.query_status = "auth_expired"
+                self._async_set_failure_status("auth_expired")
                 raise ConfigEntryAuthFailed("Refresh the website session") from err
             except PortalChallengeError as err:
-                self.query_status = "verification"
+                self._async_set_failure_status("verification")
                 self._next_manual_refresh = monotonic() + 3600
                 raise UpdateFailed(str(err), retry_after=3600) from err
             except PortalError as err:
-                self.query_status = "connection_failed"
+                self._async_set_failure_status("connection_failed")
                 raise UpdateFailed(str(err)) from err
             finally:
                 self._query_running = False
