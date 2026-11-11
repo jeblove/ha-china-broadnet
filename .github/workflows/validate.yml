@@ -35,7 +35,8 @@ jobs:
         run: |
           hacs=$(mktemp -d)
           trap 'rm -rf "$hacs"' EXIT
-          curl --fail --silent --show-error --location \
+          curl --fail --retry 4 --retry-delay 5 --retry-max-time 120 \
+            --silent --show-error --location \
             https://codeload.github.com/hacs/integration/tar.gz/a15e87ec0d1c82e58f1ddbaf17669d3eaa261eb8 \
             | tar -xz --strip-components=1 -C "$hacs"
           PYTHONPATH="$hacs" .venv/bin/python "$hacs/action/action.py"
@@ -54,7 +55,8 @@ jobs:
         run: |
           core=$(mktemp -d)
           trap 'rm -rf "$core"' EXIT
-          curl --fail --silent --show-error --location \
+          curl --fail --retry 4 --retry-delay 5 --retry-max-time 120 \
+            --silent --show-error --location \
             https://codeload.github.com/home-assistant/core/tar.gz/refs/tags/2026.10.2 \
             | tar -xz --strip-components=1 -C "$core"
           # These optional audio processors require a C++ compiler and are unused by Hassfest.

@@ -721,7 +721,11 @@ async def test_portal_repairs_survive_outage_and_clear_on_reselection(
         "endTime": "2026-12-01 00:00:00",
         "discntName": "示例通用甲",
     }
-    aioclient_mock.post(url, json={"status": "000000", "data": {"balance": "5.00"}})
+    aioclient_mock.post(
+        url,
+        headers={"content-type": "application/json"},
+        json={"status": "000000", "data": {"balance": "5.00"}},
+    )
     mock_resources(aioclient_mock, url, [row])
     entry = MockConfigEntry(
         domain=DOMAIN,
@@ -746,21 +750,33 @@ async def test_portal_repairs_survive_outage_and_clear_on_reselection(
     assert float(state(hass, entry, "data_total")) == 1.073741824
 
     aioclient_mock.clear_requests()
-    aioclient_mock.post(url, json={"status": "000000", "data": {"balance": "0"}})
+    aioclient_mock.post(
+        url,
+        headers={"content-type": "application/json"},
+        json={"status": "000000", "data": {"balance": "0"}},
+    )
     aioclient_mock.post(url.rsplit("/", 1)[0] + "/qryUserRes", status=503)
     await entry.runtime_data.async_refresh()
     assert registry.async_get_issue(DOMAIN, issue_id) is issue
     assert state(hass, entry, "balance") == "0.0"
 
     aioclient_mock.clear_requests()
-    aioclient_mock.post(url, json={"status": "000000", "data": {"balance": "0"}})
+    aioclient_mock.post(
+        url,
+        headers={"content-type": "application/json"},
+        json={"status": "000000", "data": {"balance": "0"}},
+    )
     mock_resources(aioclient_mock, url, [row, {**row, "discntName": "示例通用乙"}])
     await entry.runtime_data.async_refresh()
     assert registry.async_get_issue(DOMAIN, issue_id) is None
     assert state(hass, entry, "query_status") == "success"
 
     aioclient_mock.clear_requests()
-    aioclient_mock.post(url, json={"status": "000000", "data": {"balance": "0"}})
+    aioclient_mock.post(
+        url,
+        headers={"content-type": "application/json"},
+        json={"status": "000000", "data": {"balance": "0"}},
+    )
     mock_resources(aioclient_mock, url, [row])
     await entry.runtime_data.async_refresh()
     assert registry.async_get_issue(DOMAIN, issue_id) is not None
@@ -813,7 +829,11 @@ async def test_portal_diagnostics_and_recovery(hass, aioclient_mock, freezer):
 
     freezer.move_to("2026-11-15 00:00:00")
     url = f"{H5_ORIGIN}/contact-web/api/busi/qryBillInfo"
-    aioclient_mock.post(url, json={"status": "000000", "data": {"balance": "9.00"}})
+    aioclient_mock.post(
+        url,
+        headers={"content-type": "application/json"},
+        json={"status": "000000", "data": {"balance": "9.00"}},
+    )
     mock_resources(aioclient_mock, url)
     entry = MockConfigEntry(
         domain=DOMAIN,
@@ -837,7 +857,11 @@ async def test_portal_diagnostics_and_recovery(hass, aioclient_mock, freezer):
     assert first["last_successful_queries"]["balance"] is not None
 
     aioclient_mock.clear_requests()
-    aioclient_mock.post(url, json={"status": "000000", "data": {"balance": "0"}})
+    aioclient_mock.post(
+        url,
+        headers={"content-type": "application/json"},
+        json={"status": "000000", "data": {"balance": "0"}},
+    )
     aioclient_mock.post(url.rsplit("/", 1)[0] + "/qryUserRes", status=503)
     freezer.tick(timedelta(minutes=1))
     await entry.runtime_data.async_refresh()
@@ -881,7 +905,11 @@ async def test_portal_diagnostics_and_recovery(hass, aioclient_mock, freezer):
     )
 
     aioclient_mock.clear_requests()
-    aioclient_mock.post(url, json={"status": "000000", "data": {"balance": "0"}})
+    aioclient_mock.post(
+        url,
+        headers={"content-type": "application/json"},
+        json={"status": "000000", "data": {"balance": "0"}},
+    )
     mock_resources(aioclient_mock, url)
     freezer.tick(timedelta(minutes=15, seconds=1))
     async_fire_time_changed(hass)
@@ -916,7 +944,11 @@ async def test_portal_month_rollover_and_saved_entry_startup(
         "endTime": "2026-12-01 00:00:00",
         "discntName": "示例通用旧包",
     }
-    aioclient_mock.post(url, json={"status": "000000", "data": {"balance": "5"}})
+    aioclient_mock.post(
+        url,
+        headers={"content-type": "application/json"},
+        json={"status": "000000", "data": {"balance": "5"}},
+    )
     mock_resources(aioclient_mock, url, [row, {**row, "discntName": "示例定向赠送"}])
     entry = MockConfigEntry(
         domain=DOMAIN,
@@ -968,7 +1000,11 @@ async def test_portal_month_rollover_and_saved_entry_startup(
     assert restored.data == entry.data
 
     aioclient_mock.clear_requests()
-    aioclient_mock.post(url, json={"status": "000000", "data": {"balance": "0"}})
+    aioclient_mock.post(
+        url,
+        headers={"content-type": "application/json"},
+        json={"status": "000000", "data": {"balance": "0"}},
+    )
     renewed = {
         **row,
         "discntName": "示例通用新包",
