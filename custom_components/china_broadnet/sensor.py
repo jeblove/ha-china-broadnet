@@ -207,7 +207,9 @@ class BroadnetSensor(CoordinatorEntity[UsageCoordinator], SensorEntity):
         key = self.entity_description.key
         if key in ("query_status", "balance_updated", "resources_updated"):
             return getattr(self.coordinator, key)
-        if key in (*TRAFFIC_RATIOS, "estimated_depletion"):
+        if key in (*TRAFFIC_RATIOS, "estimated_depletion") or (
+            key in TRAFFIC_KEYS and self.coordinator.entry.data["source"] == "portal"
+        ):
             data = self.coordinator.data
             month = datetime.now(UTC).astimezone(SHANGHAI).strftime("%Y-%m")
             if data.get("traffic_month") != month:
@@ -308,9 +310,9 @@ class PackageSensor(BroadnetSensor):
         if (package := self._package) is not None:
             if self._kind == "expiry":
                 return package["end"]
+            if datetime.now(UTC) >= package["end"]:
+                return None
             if self._kind == "usage_percent":
-                if datetime.now(UTC) >= package["end"]:
-                    return None
                 return usage_percent(package["total"], package["remaining"])
             return traffic_gb(str(package["remaining"]), "KiB", 1024)
         return None

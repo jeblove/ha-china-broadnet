@@ -2,7 +2,9 @@
 
 from collections import Counter
 
-from .const import TRAFFIC_KEYS
+from homeassistant.loader import async_get_integration
+
+from .const import DEFAULT_REFRESH_MINUTES, DOMAIN, TRAFFIC_KEYS
 
 REJECTION_REASONS = (
     "invalid_row",
@@ -38,6 +40,23 @@ async def async_get_config_entry_diagnostics(hass, entry):
     rejected = data.get("package_rejections", {})
     counts = Counter(item["category"] for item in data.get("packages", {}).values())
     return {
+        "integration_version": (await async_get_integration(hass, DOMAIN)).version,
+        "refresh_interval_minutes": (
+            entry.data.get("refresh_minutes", DEFAULT_REFRESH_MINUTES)
+            if source == "portal"
+            else None
+        ),
+        "last_successful_queries": {
+            key: timestamp.isoformat() if timestamp is not None else None
+            for key, timestamp in {
+                "balance": coordinator.balance_updated if coordinator else None,
+                "resources": coordinator.resources_updated if coordinator else None,
+                "overall": data.get("last_updated"),
+            }.items()
+        },
+        "verification_retry_after_seconds": (
+            coordinator.verification_retry_after_seconds if coordinator else 0
+        ),
         "source": source if source in SOURCES else "unknown",
         "portal_mode": mode if mode in PORTAL_MODES else None,
         "query_status": coordinator.query_status

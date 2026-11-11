@@ -3,7 +3,9 @@
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import issue_registry as ir
 
+from .const import DOMAIN
 from .coordinator import UsageCoordinator
 from .insights import snapshot_store
 from .receiver import async_register_receiver
@@ -29,5 +31,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Remove locally stored monthly snapshots with the account."""
+    ir.async_delete_issue(hass, DOMAIN, f"selected_packages_{entry.entry_id}")
     if entry.data["source"] == "portal":
         await snapshot_store(hass, entry.entry_id).async_remove()

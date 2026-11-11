@@ -255,5 +255,11 @@
         "name": "Refresh portal readings"
       }
     }
+  },
+  "issues": {
+    "selected_packages": {
+      "title": "Check the selected China Broadnet general data packages",
+      "description": "The resource query for account “{account}” succeeded, but some manually selected general data packages could not be matched. They may have expired, been removed, or changed names.\n\nOpen the [China Broadnet integration settings](/config/integrations/integration/china_broadnet) and reconfigure the account to select the current monthly general data packages. This issue clears automatically once a successful resource query matches the selection."
+    }
   }
 }

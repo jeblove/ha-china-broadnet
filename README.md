@@ -10,7 +10,12 @@ China Broadnet is a Home Assistant integration for China Broadnet mobile subscri
 
 需要 **Home Assistant Core 2026.10.0 或更新版本**。
 
-1. 已经在 HACS 看到本集成时，选择「下载」或「更新」，完成后重启 HA。首次添加仓库时，在 HACS 的「自定义仓库」中填入 `https://github.com/jeblove/ha-china-broadnet`，类别选择「集成」。[HACS 自定义仓库说明](https://www.hacs.xyz/docs/faq/custom_repositories/)
+1. 在「设置 → Marketplace」（Home Assistant 2026.11 起）或 HACS（旧版）搜索 **China Broadnet**，打开后选择「安装」或「下载」。也可以用下方按钮直达安装页。安装完成后重启 HA。
+
+   [![在 Home Assistant 中打开中国广电](https://my.home-assistant.io/badges/marketplace_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=jeblove&repository=ha-china-broadnet&category=integration)
+
+   如果搜不到，在 Marketplace 选择「从链接添加」，或在 HACS 打开「自定义仓库」，填入 `https://github.com/jeblove/ha-china-broadnet`。如果提示选择类别，选「集成」，然后打开仓库安装。
+
 2. 在 HA 打开「设置 → 设备与服务 → 添加集成」，搜索「中国广电」或「China Broadnet」。
 3. 选择「手机号和短信验证码登录」，填入账号别名和手机号，阅读协议并提交。填入收到的验证码，查到余额后就会创建实体。验证码有效期为 5 分钟，发送 60 秒后可以手动重发。
 
@@ -36,9 +41,9 @@ China Broadnet is a Home Assistant integration for China Broadnet mobile subscri
 
 ## 实体不可用时
 
-先打开设备的「诊断」区，查看**查询状态**以及余额、套餐余量各自的**最后成功查询时间**。需要反馈问题时，可从集成配置项菜单「下载诊断」。
+先打开设备的「诊断」区，查看**查询状态**以及余额、套餐余量各自的**最后成功查询时间**。需要反馈问题时，可从集成配置项菜单「下载诊断」。诊断包含集成版本、自动查询间隔、余额与套餐资源及整体查询的最后成功时间，以及网页验证退避的剩余秒数。
 
-- **余额正常，部分流量实体不可用**。打开「重新配置」检查所选通用包是否仍有效。定向包的额度缺失、为零或有效期不一致时，相应的使用率可能不可用。
+- **余额正常，部分流量实体不可用**。打开「重新配置」检查所选通用包是否仍有效。查询成功但所选包无法匹配时，HA 的「设置 → 系统 → 修复」会提示重新选择，恢复匹配后提示自动清除。定向包的额度缺失、为零或有效期不一致时，相应的使用率可能不可用。
 - **预计流量可用天数或用尽时间不可用**。需要 Recorder 最近 7 天内至少一天可比较的通用流量历史，并且用量有增长。跨月、换包或历史不足时会暂停估算。
 - **月末用量快照不可用**。首次积累读数后，需等到北京时间下一个月初完成归档。快照保留最近 12 个有读数的账期，各指标带有最后成功观察时间。
 - **流量数字和广电 App 略有不同**。HA 统一显示十进制 GB。广电按二进制口径显示的 100 G，对应约 107.374 GB。使用率不受这种单位换算影响。
