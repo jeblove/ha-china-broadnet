@@ -255,5 +255,11 @@
         "name": "刷新营业厅读数"
       }
     }
+  },
+  "issues": {
+    "selected_packages": {
+      "title": "请检查中国广电所选通用流量包",
+      "description": "账号「{account}」已成功查询套餐资源，但部分手动选择的通用流量包当前无法匹配，可能已到期、被移除或名称发生变化。\n\n请打开[中国广电集成设置](/config/integrations/integration/china_broadnet)，在对应账号的「重新配置」中重新选择本月通用流量包。套餐查询恢复匹配后，此提示会自动清除。"
+    }
   }
 }

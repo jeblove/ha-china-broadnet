@@ -698,3 +698,286 @@ async def test_desktop_browser_verification_does_not_send_sms(hass, aioclient_mo
     assert form["step_id"] == "desktop_retry"
     assert form["errors"] == {"base": "captcha_challenge"}
     assert aioclient_mock.call_count == 1
+
+
+async def test_portal_repairs_survive_outage_and_clear_on_reselection(
+    hass, aioclient_mock, freezer
+):
+    """Only successful resource responses can create or clear a package warning."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.china_broadnet.portal import H5_ORIGIN
+    from homeassistant.helpers import issue_registry as ir
+
+    freezer.move_to("2026-11-15 00:00:00")
+    url = f"{H5_ORIGIN}/contact-web/api/busi/qryBillInfo"
+    row = {
+        "busiType": "5",
+        "highFee": "1048576",
+        "balance": "524288",
+        "startTime": "2026-11-01 00:00:00",
+        "endTime": "2026-12-01 00:00:00",
+        "discntName": "示例通用甲",
+    }
+    aioclient_mock.post(url, json={"status": "000000", "data": {"balance": "5.00"}})
+    mock_resources(aioclient_mock, url, [row])
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Example",
+        data={
+            "source": "portal",
+            "portal_mode": "h5",
+            "account": "19200000000",
+            "session": "example-session",
+            "packages": ["示例通用甲", "示例通用乙"],
+        },
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    registry = ir.async_get(hass)
+    issue_id = f"selected_packages_{entry.entry_id}"
+    issue = registry.async_get_issue(DOMAIN, issue_id)
+    assert issue is not None
+    assert issue.translation_key == "selected_packages"
+    assert state(hass, entry, "query_status") == "partial"
+    assert float(state(hass, entry, "data_total")) == 1.073741824
+
+    aioclient_mock.clear_requests()
+    aioclient_mock.post(url, json={"status": "000000", "data": {"balance": "0"}})
+    aioclient_mock.post(url.rsplit("/", 1)[0] + "/qryUserRes", status=503)
+    await entry.runtime_data.async_refresh()
+    assert registry.async_get_issue(DOMAIN, issue_id) is issue
+    assert state(hass, entry, "balance") == "0.0"
+
+    aioclient_mock.clear_requests()
+    aioclient_mock.post(url, json={"status": "000000", "data": {"balance": "0"}})
+    mock_resources(aioclient_mock, url, [row, {**row, "discntName": "示例通用乙"}])
+    await entry.runtime_data.async_refresh()
+    assert registry.async_get_issue(DOMAIN, issue_id) is None
+    assert state(hass, entry, "query_status") == "success"
+
+    aioclient_mock.clear_requests()
+    aioclient_mock.post(url, json={"status": "000000", "data": {"balance": "0"}})
+    mock_resources(aioclient_mock, url, [row])
+    await entry.runtime_data.async_refresh()
+    assert registry.async_get_issue(DOMAIN, issue_id) is not None
+
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert registry.async_get_issue(DOMAIN, issue_id) is not None
+    flow = await reconfigure(hass, entry)
+    result = await submit(
+        hass, flow, {"refresh_minutes": 15, "packages": ["示例通用甲"]}
+    )
+    assert result["reason"] == "reconfigure_successful"
+    assert registry.async_get_issue(DOMAIN, issue_id) is None
+    assert entry.runtime_data.update_interval == timedelta(minutes=15)
+    entity_ids = {
+        entity.entity_id
+        for entity in er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id)
+    }
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert entity_ids == {
+        entity.entity_id
+        for entity in er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id)
+    }
+    assert all("/login/" not in str(call[1]) for call in aioclient_mock.mock_calls)
+
+    # Removing the account must also remove a persistent warning.
+    hass.config_entries.async_update_entry(
+        entry, data={**entry.data, "packages": ["missing"]}
+    )
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert registry.async_get_issue(DOMAIN, issue_id) is not None
+    await hass.config_entries.async_remove(entry.entry_id)
+    assert registry.async_get_issue(DOMAIN, issue_id) is None
+
+
+async def test_portal_diagnostics_and_recovery(hass, aioclient_mock, freezer):
+    """Preserve success times across partial failure and report real backoff."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.china_broadnet.diagnostics import (
+        async_get_config_entry_diagnostics,
+    )
+    from custom_components.china_broadnet.portal import H5_ORIGIN
+
+    freezer.move_to("2026-11-15 00:00:00")
+    url = f"{H5_ORIGIN}/contact-web/api/busi/qryBillInfo"
+    aioclient_mock.post(url, json={"status": "000000", "data": {"balance": "9.00"}})
+    mock_resources(aioclient_mock, url)
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Private alias",
+        data={
+            "source": "portal",
+            "portal_mode": "h5",
+            "account": "19200000000",
+            "session": "example-private-session",
+            "refresh_minutes": 15,
+        },
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    first = await async_get_config_entry_diagnostics(hass, entry)
+    assert first["integration_version"] == "0.1.3"
+    assert first["refresh_interval_minutes"] == 15
+    assert first["verification_retry_after_seconds"] == 0
+    assert first["last_successful_queries"]["balance"] is not None
+
+    aioclient_mock.clear_requests()
+    aioclient_mock.post(url, json={"status": "000000", "data": {"balance": "0"}})
+    aioclient_mock.post(url.rsplit("/", 1)[0] + "/qryUserRes", status=503)
+    freezer.tick(timedelta(minutes=1))
+    await entry.runtime_data.async_refresh()
+    partial = await async_get_config_entry_diagnostics(hass, entry)
+    assert partial["last_successful_queries"]["resources"] == (
+        first["last_successful_queries"]["resources"]
+    )
+    assert partial["last_successful_queries"]["balance"] != (
+        first["last_successful_queries"]["balance"]
+    )
+
+    aioclient_mock.clear_requests()
+    aioclient_mock.post(
+        url, text="<html>Verification</html>", headers={"content-type": "text/html"}
+    )
+    await entry.runtime_data.async_refresh()
+    report = await async_get_config_entry_diagnostics(hass, entry)
+    assert report["query_status"] == "verification"
+    assert 3599 <= report["verification_retry_after_seconds"] <= 3600
+    assert report["last_successful_queries"] == partial["last_successful_queries"]
+    for secret in ("19200000000", "example-private-session", "Private alias", "9.00"):
+        assert secret not in repr(report)
+    assert state(hass, entry, "balance") == STATE_UNAVAILABLE
+    await entry.runtime_data.async_manual_refresh()
+    assert aioclient_mock.call_count == 1
+    freezer.tick(timedelta(minutes=10))
+    report = await async_get_config_entry_diagnostics(hass, entry)
+    assert 2999 <= report["verification_retry_after_seconds"] <= 3000
+
+    aioclient_mock.clear_requests()
+    aioclient_mock.post(url, status=503)
+    freezer.tick(timedelta(minutes=50, seconds=1))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    assert state(hass, entry, "query_status") == "connection_failed"
+    assert state(hass, entry, "last_updated") == partial["last_successful_queries"]["overall"]
+
+    aioclient_mock.clear_requests()
+    aioclient_mock.post(url, json={"status": "000000", "data": {"balance": "0"}})
+    mock_resources(aioclient_mock, url)
+    freezer.tick(timedelta(minutes=15, seconds=1))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    assert state(hass, entry, "query_status") == "success"
+    assert state(hass, entry, "balance") == "0.0"
+    recovered = await async_get_config_entry_diagnostics(hass, entry)
+    assert recovered["verification_retry_after_seconds"] == 0
+    assert recovered["last_successful_queries"]["resources"] != (
+        first["last_successful_queries"]["resources"]
+    )
+    assert not hass.config_entries.flow.async_progress_by_handler(DOMAIN)
+
+
+async def test_portal_month_rollover_and_saved_entry_startup(
+    hass, aioclient_mock, freezer
+):
+    """Restore a saved entry after an offline month boundary without a login."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.china_broadnet.portal import H5_ORIGIN
+    from homeassistant.helpers import issue_registry as ir
+
+    freezer.move_to("2026-11-30 15:59:00")
+    url = f"{H5_ORIGIN}/contact-web/api/busi/qryBillInfo"
+    row = {
+        "busiType": "5",
+        "highFee": "1048576",
+        "balance": "524288",
+        "startTime": "2026-11-01 00:00:00",
+        "endTime": "2026-12-01 00:00:00",
+        "discntName": "示例通用旧包",
+    }
+    aioclient_mock.post(url, json={"status": "000000", "data": {"balance": "5"}})
+    mock_resources(aioclient_mock, url, [row])
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Saved account",
+        data={
+            "source": "portal",
+            "portal_mode": "h5",
+            "account": "19200000000",
+            "session": "example-session",
+            "refresh_minutes": 15,
+            "packages": ["示例通用旧包"],
+        },
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    prior_used = float(state(hass, entry, "data_used"))
+    old_coordinator = entry.runtime_data
+    snapshot_entity = er.async_get(hass).async_get_entity_id(
+        "sensor", DOMAIN, f"{entry.entry_id}_monthly_snapshots"
+    )
+
+    aioclient_mock.clear_requests()
+    aioclient_mock.post(url, status=503)
+    freezer.move_to("2026-11-30 16:00:01")
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    assert state(hass, entry, "monthly_snapshots") == "2026-11"
+    await entry.runtime_data.async_refresh()
+    assert state(hass, entry, "balance") == STATE_UNAVAILABLE
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert old_coordinator._cancel_deadline is None
+    # Exercise HA's startup deserializer with the actual persisted entry format.
+    await hass.config_entries._store.async_save({"entries": [entry.as_dict()]})
+    await hass.config_entries.async_initialize()
+    restored = hass.config_entries.async_get_entry(entry.entry_id)
+    assert restored is not entry
+    assert restored.data == entry.data
+
+    aioclient_mock.clear_requests()
+    aioclient_mock.post(url, json={"status": "000000", "data": {"balance": "0"}})
+    renewed = {
+        **row,
+        "discntName": "示例通用新包",
+        "balance": "1048576",
+        "startTime": "2026-12-01 00:00:00",
+        "endTime": "2027-01-01 00:00:00",
+    }
+    mock_resources(aioclient_mock, url, [renewed])
+    assert await hass.config_entries.async_setup(restored.entry_id)
+    await hass.async_block_till_done()
+    assert restored.runtime_data is not old_coordinator
+    assert restored.runtime_data.update_interval == timedelta(minutes=15)
+    assert state(hass, restored, "balance") == "0.0"
+    assert state(hass, restored, "data_total") == STATE_UNAVAILABLE
+    assert ir.async_get(hass).async_get_issue(
+        DOMAIN, f"selected_packages_{restored.entry_id}"
+    )
+    assert not hass.config_entries.flow.async_progress_by_handler(DOMAIN)
+
+    flow = await reconfigure(hass, restored)
+    result = await submit(
+        hass, flow, {"refresh_minutes": 15, "packages": ["示例通用新包"]}
+    )
+    assert result["reason"] == "reconfigure_successful"
+    assert state(hass, restored, "data_used") == "0.0"
+    assert state(hass, restored, "general_usage_percent") == "0.0"
+    assert not ir.async_get(hass).async_get_issue(
+        DOMAIN, f"selected_packages_{restored.entry_id}"
+    )
+    snapshots = hass.states.get(snapshot_entity).attributes["months"]
+    assert len(snapshots) == 1
+    assert snapshots[0]["month"] == "2026-11"
+    assert snapshots[0]["readings"]["data_used"]["value"] == prior_used
+    assert all("/login/" not in str(call[1]) for call in aioclient_mock.mock_calls)

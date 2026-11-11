@@ -1,6 +1,7 @@
 """Share usage data and retire old measurements across all sensors."""
 
 import logging
+import math
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from time import monotonic
@@ -10,6 +11,7 @@ from aiohttp import DummyCookieJar
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
 from homeassistant.helpers.event import async_track_point_in_utc_time
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
@@ -60,6 +62,13 @@ class UsageCoordinator(DataUpdateCoordinator[dict]):
         self._cancel_deadline: Callable[[], None] | None = None
         entry.async_on_unload(self._async_cancel_deadline)
 
+    @property
+    def verification_retry_after_seconds(self) -> int:
+        """Return the remaining verification backoff without exporting credentials."""
+        if self.query_status != "verification":
+            return 0
+        return max(0, math.ceil(self._next_manual_refresh - monotonic()))
+
     async def async_manual_refresh(self) -> None:
         """Ignore repeat presses and honor authentication and verification backoff."""
         if (
@@ -94,6 +103,21 @@ class UsageCoordinator(DataUpdateCoordinator[dict]):
             if data["resources_ok"]:
                 self.resources_updated = data["resources_at"]
             self.query_status = "partial" if data["missing_sections"] else "success"
+            if data["resources_ok"]:
+                issue_id = f"selected_packages_{self.entry.entry_id}"
+                if "selected_packages" in data["missing_sections"]:
+                    ir.async_create_issue(
+                        self.hass,
+                        DOMAIN,
+                        issue_id,
+                        is_fixable=False,
+                        is_persistent=True,
+                        severity=ir.IssueSeverity.WARNING,
+                        translation_key="selected_packages",
+                        translation_placeholders={"account": self.entry.title},
+                    )
+                else:
+                    ir.async_delete_issue(self.hass, DOMAIN, issue_id)
             await self.insights.async_apply(data, data["last_updated"])
             if self._cancel_deadline is None:
                 self._async_schedule_month_end(datetime.now(UTC))

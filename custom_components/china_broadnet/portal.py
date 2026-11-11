@@ -729,7 +729,11 @@ class PortalClient:
         missing_sections = []
         if not isinstance(rows, list):
             missing_sections.append("resources")
-        elif self._packages and not traffic:
+        elif self._packages and set(self._packages) - {
+            pack["name"]
+            for pack in packages.values()
+            if pack["category"] == "general"
+        }:
             missing_sections.append("selected_packages")
         if not self._plan_name:
             missing_sections.append("plan")
