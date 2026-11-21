@@ -5,6 +5,7 @@ from asyncio import Lock
 from collections import defaultdict, deque
 from datetime import timedelta
 
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.recorder import get_instance
 from homeassistant.helpers.storage import Store
@@ -74,6 +75,8 @@ def daily_rate(history, now, used, scope):
     previous = used
     baseline = None
     for state in reversed(history):
+        if state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+            continue
         if (
             state.attributes.get("usage_scope"),
             state.attributes.get("unit_of_measurement"),

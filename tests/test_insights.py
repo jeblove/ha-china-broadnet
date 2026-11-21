@@ -28,6 +28,17 @@ def test_estimate_requires_comparable_recorded_history():
     assert daily_rate([sample(0.5, "12")], NOW, 14, "one") is None
     assert daily_rate([*history, sample(0.5, "12", "other")], NOW, 14, "one") is None
     assert daily_rate([*history, sample(0.5, "16")], NOW, 14, "one") is None
+    unavailable = SimpleNamespace(
+        state="unavailable",
+        last_updated=NOW - timedelta(days=0.5),
+        attributes={},
+    )
+    unknown = SimpleNamespace(
+        state="unknown",
+        last_updated=NOW - timedelta(days=0.25),
+        attributes={},
+    )
+    assert daily_rate([*history, unavailable, unknown], NOW, 14, "one") == 2
 
 
 async def test_live_changes_and_archive_survive_reload(hass):
